@@ -177,8 +177,13 @@ export function SchemaTree() {
   if (!schema || schema.length === 0) {
     const dormida = !session ? consolaActiva.binding : null;
     return (
-      <div data-testid={TESTID_ARBOL} className="flex h-full w-full flex-col bg-sidebar">
-        <div className="flex-1 p-4 text-xs text-muted-foreground">
+      <div
+        data-testid={TESTID_ARBOL}
+        className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-sidebar"
+        data-tinte={tinteDelArbol ?? undefined}
+        style={tinteDelArbol ? { backgroundColor: fondoTenido(tinteDelArbol, "var(--sidebar)", PESO_DE_TINTE.arbol) } : undefined}
+      >
+        <div className="min-h-0 flex-1 overflow-y-auto p-4 text-xs text-muted-foreground">
           {dormida ? (
             // R91: consola dormida sin esquema en caché. No se conecta sola al abrirla (conexión
             // perezosa): lo hace al ejecutar, o aquí si el usuario quiere ver el árbol antes.
@@ -219,7 +224,7 @@ export function SchemaTree() {
     // separarse. Mismo atributo en las dos ramas (con y sin esquema) por simetría.
     <div
       data-testid={TESTID_ARBOL}
-      className="flex h-full w-full flex-col bg-sidebar"
+      className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-sidebar"
       /*
         R18: el árbol de una conexión con color se tiñe con él (DataGrip tiñe el nodo de la fuente de
         datos y lo que cuelga de él; aquí el árbol ES el de una sola conexión, así que va el fondo
@@ -235,21 +240,21 @@ export function SchemaTree() {
         Tablas/Especiales y sin tarjetas. Arriba solo el buscador de objetos; debajo el árbol con
         los grupos contados.
       */}
-      <div className="flex flex-col gap-1.5 border-b border-gdb-sep px-2 py-2">
-        <div className="relative">
-          <IjIcon name="search" className="pointer-events-none absolute top-1/2 left-2 -translate-y-1/2" />
-          <Input
-            placeholder={esMongo ? "Buscar colecciones…" : "Buscar tablas…"}
-            className="h-7 border-border/60 bg-gdb-field pl-7 text-xs placeholder:text-muted-foreground focus-visible:border-ring"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-        </div>
+      <div className="shrink-0 border-b border-gdb-sep px-2 py-1.5">
         <div className="flex items-center gap-1">
+          <div className="relative min-w-0 flex-1">
+            <IjIcon name="search" className="pointer-events-none absolute top-1/2 left-2 -translate-y-1/2" />
+            <Input
+              placeholder={esMongo ? "Buscar colecciones…" : "Buscar tablas…"}
+              className="h-7 border-border/60 bg-gdb-field pl-7 text-xs placeholder:text-muted-foreground focus-visible:border-ring"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
           <Button
             size="icon-xs"
             variant="ghost"
-            className="text-muted-foreground hover:bg-gdb-rowhover hover:text-foreground"
+            className="shrink-0 text-muted-foreground hover:bg-gdb-rowhover hover:text-foreground"
             title="Expandir todo"
             onClick={expandAll}
           >
@@ -258,7 +263,7 @@ export function SchemaTree() {
           <Button
             size="icon-xs"
             variant="ghost"
-            className="text-muted-foreground hover:bg-gdb-rowhover hover:text-foreground"
+            className="shrink-0 text-muted-foreground hover:bg-gdb-rowhover hover:text-foreground"
             title="Colapsar todo"
             onClick={collapseAll}
           >
@@ -267,7 +272,7 @@ export function SchemaTree() {
           <Button
             size="icon-xs"
             variant={favoritesOnly ? "secondary" : "ghost"}
-            className={cn("ml-auto hover:bg-gdb-rowhover", favoritesOnly && "bg-secondary")}
+            className={cn("shrink-0 hover:bg-gdb-rowhover", favoritesOnly && "bg-secondary")}
             onClick={() => setFavoritesOnly((v) => !v)}
             title={favoritesOnly ? "Mostrar todo" : "Solo favoritos"}
             aria-pressed={favoritesOnly}
@@ -277,17 +282,18 @@ export function SchemaTree() {
         </div>
       </div>
 
-      <ScrollArea className="flex-1 bg-transparent">
-        <div className="p-1.5">
+      <ScrollArea className="min-h-0 flex-1 bg-transparent">
+        <div className="min-w-0 p-1.5">
           {filteredSchemas.map((node) => {
             const isOpen = expandedSchemas.has(node.name);
             return (
               <div key={node.name} className="mb-0.5">
                 <ContextMenu>
                   <ContextMenuTrigger className="contents">
-                    <div className="group flex items-center gap-1 rounded-md h-[var(--gdb-row)] px-1 hover:bg-gdb-rowhover">
+                    <div className="group flex min-w-0 items-center gap-1 rounded-md h-[var(--gdb-row)] px-1.5 transition-colors hover:bg-gdb-rowhover">
                       <button
-                        className="flex flex-1 items-center gap-1.5 text-xs font-semibold text-foreground"
+                        type="button"
+                        className="flex min-w-0 flex-1 items-center gap-1.5 text-left text-xs font-semibold text-foreground"
                         onClick={() => toggle(setExpandedSchemas, node.name)}
                       >
                         {isOpen ? (
@@ -296,11 +302,14 @@ export function SchemaTree() {
                           <IjIcon name="chevronRight" />
                         )}
                         <IjIcon name="schema" />
-                        <span className="font-jetbrains">{node.name}</span>
+                        <span className="truncate font-jetbrains">{node.name}</span>
                       </button>
+                      <span className="ml-auto shrink-0 font-jetbrains text-[10px] tabular-nums text-gdb-fgdim/80 group-hover:hidden group-has-[[data-popup-open]]:hidden">
+                        {node.tables.length}
+                      </span>
                       <DropdownMenu>
                         <DropdownMenuTrigger
-                          className="flex items-center opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-foreground"
+                          className="ml-auto hidden shrink-0 items-center rounded p-0.5 text-muted-foreground hover:bg-gdb-field hover:text-foreground group-hover:flex group-has-[[data-popup-open]]:flex data-[popup-open]:flex focus-visible:flex"
                           title="Generar DDL"
                         >
                           <IjIcon name="add" />
@@ -348,7 +357,7 @@ export function SchemaTree() {
                   </ContextMenuContent>
                 </ContextMenu>
                 {isOpen && (
-                  <div className="pl-[var(--gdb-indent)]">
+                  <div className="ml-2.5 border-l border-gdb-sep/50 pl-1.5 pt-0.5">
                     {/*
                       Fase 70 (T3): grupos con CONTADOR, como la maqueta aprobada
                       (`Tablas 4`, `Vistas 1`, `Funciones 2`). Las tablas se parten por `type`
@@ -498,16 +507,18 @@ function GrupoContado({
       <button
         type="button"
         onClick={onToggle}
-        className="flex w-full items-center gap-1.5 rounded-md px-1 text-[11px] font-medium text-gdb-fgdim hover:bg-gdb-rowhover hover:text-gdb-fg"
+        className="flex w-full min-w-0 items-center gap-1.5 rounded-md px-1.5 text-[10.5px] font-semibold uppercase tracking-[0.04em] text-gdb-fgdim transition-colors hover:bg-gdb-rowhover hover:text-gdb-fg"
         style={{ height: "var(--gdb-row)" }}
         aria-expanded={!colapsado}
       >
         {colapsado ? <IjIcon name="chevronRight" /> : <IjIcon name="chevronDown" />}
         <IjIcon name={icono} className="opacity-70" />
         <span className="truncate">{etiqueta}</span>
-        <span className="ml-auto pr-1 text-[10px] tabular-nums text-gdb-fgdim/80">{total}</span>
+        <span className="ml-auto shrink-0 rounded bg-gdb-field/80 px-1.5 py-0.5 font-jetbrains text-[10px] leading-none tabular-nums text-gdb-fgdim">
+          {total}
+        </span>
       </button>
-      {!colapsado && <div className="pl-[var(--gdb-indent)]">{children}</div>}
+      {!colapsado && <div className="ml-2.5 border-l border-gdb-sep/40 pl-1.5 py-0.5">{children}</div>}
     </div>
   );
 }
@@ -572,8 +583,17 @@ function TableNode({
     <div>
       <ContextMenu>
         <ContextMenuTrigger className="contents">
-          <div className="group flex items-center gap-1 rounded-md h-[var(--gdb-row)] px-1 hover:bg-gdb-rowhover">
-            <button onClick={onToggle} className="flex flex-1 items-center gap-1.5 text-xs font-jetbrains text-foreground">
+          <div
+            className={cn(
+              "group flex min-w-0 items-center gap-1 rounded-md h-[var(--gdb-row)] px-1.5 transition-colors hover:bg-gdb-rowhover",
+              expanded && "bg-gdb-rowhover/40"
+            )}
+          >
+            <button
+              type="button"
+              onClick={onToggle}
+              className="flex min-w-0 flex-1 items-center gap-1.5 text-left text-xs font-jetbrains text-foreground"
+            >
               {expanded ? <IjIcon name="chevronDown" /> : <IjIcon name="chevronRight" />}
               {table.type === "view" ? (
                 <IjIcon name="view" />
@@ -581,42 +601,53 @@ function TableNode({
                 <IjIcon name="table" />
               )}
               <span
-                className="cursor-pointer"
+                className="truncate cursor-pointer"
+                title={table.name}
                 onDoubleClick={() => openTab()}
               >
                 {table.name}
               </span>
             </button>
-            <button
-              onClick={toggleFavorite}
-              className={cn(
-                "flex items-center opacity-0 group-hover:opacity-100 transition-opacity",
-                isFavorite && "opacity-100"
+            <div className="ml-auto flex shrink-0 items-center gap-0.5">
+              {!isFavorite && (
+                <span className="shrink-0 font-jetbrains text-[10px] tabular-nums text-gdb-fgdim/70 group-hover:hidden group-has-[[data-popup-open]]:hidden">
+                  {table.columns.length}
+                </span>
               )}
-              title={isFavorite ? "Quitar de favoritos" : "Agregar a favoritos"}
-            >
-              <IjIcon name={isFavorite ? "star" : "starEmpty"} />
-            </button>
-            <DropdownMenu>
-              <DropdownMenuTrigger className="opacity-0 group-hover:opacity-100 text-[10px] text-muted-foreground hover:text-foreground">
-                ⋮
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="min-w-32">
-                <DropdownMenuItem onClick={() => openTab()}>Abrir</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => openTab()}>
-                  SELECT 500
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={openDiagram}>
-                  <IjIcon name="diagram" className="mr-2" />
-                  Ver diagrama
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={copyName}>Copiar nombre</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => void copyDdl()}>Copiar DDL</DropdownMenuItem>
-                <DropdownMenuItem onClick={toggleFavorite}>
-                  {isFavorite ? "Quitar de favoritos" : "Agregar a favoritos"}
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+              <button
+                type="button"
+                onClick={toggleFavorite}
+                className={cn(
+                  "items-center rounded p-0.5 transition-opacity hover:bg-gdb-field",
+                  isFavorite
+                    ? "flex"
+                    : "hidden group-hover:flex group-has-[[data-popup-open]]:flex focus-visible:flex"
+                )}
+                title={isFavorite ? "Quitar de favoritos" : "Agregar a favoritos"}
+              >
+                <IjIcon name={isFavorite ? "star" : "starEmpty"} />
+              </button>
+              <DropdownMenu>
+                <DropdownMenuTrigger className="hidden items-center rounded px-1 text-[10px] text-muted-foreground hover:bg-gdb-field hover:text-foreground group-hover:flex group-has-[[data-popup-open]]:flex data-[popup-open]:flex focus-visible:flex">
+                  ⋮
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="min-w-32">
+                  <DropdownMenuItem onClick={() => openTab()}>Abrir</DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => openTab()}>
+                    SELECT 500
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={openDiagram}>
+                    <IjIcon name="diagram" className="mr-2" />
+                    Ver diagrama
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={copyName}>Copiar nombre</DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => void copyDdl()}>Copiar DDL</DropdownMenuItem>
+                  <DropdownMenuItem onClick={toggleFavorite}>
+                    {isFavorite ? "Quitar de favoritos" : "Agregar a favoritos"}
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
           </div>
         </ContextMenuTrigger>
         <ContextMenuContent align="start" className="min-w-40">
@@ -636,20 +667,20 @@ function TableNode({
         </ContextMenuContent>
       </ContextMenu>
       {expanded && (
-        <div className="pl-[var(--gdb-indent)]">
+        <div className="ml-2.5 border-l border-gdb-sep/40 pl-2 py-0.5">
           {table.columns.map((col) => (
             <div
               key={col.name}
-              className="group/column flex items-center justify-between gap-2 rounded h-[var(--gdb-row)] px-1 text-xs text-muted-foreground font-jetbrains hover:bg-gdb-rowhover hover:text-foreground"
+              className="group/column flex min-w-0 items-center justify-between gap-2 rounded-md h-[var(--gdb-row)] px-1.5 text-xs font-jetbrains text-gdb-fgdim transition-colors hover:bg-gdb-rowhover hover:text-foreground"
             >
-              <div className="flex items-center gap-1.5 min-w-0">
+              <div className="flex min-w-0 items-center gap-1.5">
                 {/* T5: como DataGrip, el icono de columna en TODAS las columnas; PK y FK van como insignias
                     superpuestas (src/components/column-icon.tsx) en vez de sustituir el icono. La FK conserva su
                     tooltip con el destino. */}
                 {col.fk ? (
                   <Tooltip>
                     <TooltipTrigger
-                      render={<span className="inline-flex cursor-default" />}
+                      render={<span className="inline-flex shrink-0 cursor-default" />}
                     >
                       <ColumnIcon primaryKey={col.isPrimaryKey} foreignKey />
                     </TooltipTrigger>
@@ -661,10 +692,20 @@ function TableNode({
                   <ColumnIcon primaryKey={col.isPrimaryKey} />
                 )}
                 <span className="truncate">{col.name}</span>
+                {col.isPrimaryKey && (
+                  <span className="shrink-0 rounded bg-secondary px-1 py-px font-jetbrains text-[9px] font-bold leading-none text-foreground">
+                    PK
+                  </span>
+                )}
+                {col.fk && (
+                  <span className="shrink-0 rounded bg-primary/15 px-1 py-px font-jetbrains text-[9px] font-bold leading-none text-primary">
+                    FK
+                  </span>
+                )}
               </div>
-              <div className="flex items-center gap-1.5 shrink-0">
-                <span className="text-[10px] opacity-60">{col.type}</span>
-              </div>
+              <span className="shrink-0 font-jetbrains text-[10px] tabular-nums text-gdb-fgdim/70">
+                {col.type}
+              </span>
             </div>
           ))}
         </div>
@@ -718,17 +759,17 @@ function RoutineNode({
       <ContextMenuTrigger className="contents">
         <div
           onClick={() => void openDdlInEditor()}
-          className="group flex cursor-pointer items-center gap-1.5 rounded-md h-[var(--gdb-row)] px-1 hover:bg-gdb-rowhover"
+          className="group flex min-w-0 cursor-pointer items-center gap-1.5 rounded-md h-[var(--gdb-row)] px-1.5 transition-colors hover:bg-gdb-rowhover"
         >
           {routine.type === "procedure" ? (
             <IjIcon name="procedure" />
           ) : (
             <IjIcon name="function" />
           )}
-          <span className="flex-1 truncate text-xs font-jetbrains text-foreground">
+          <span className="min-w-0 flex-1 truncate text-xs font-jetbrains text-foreground">
             {routine.name}
           </span>
-          <span className="text-[10px] text-muted-foreground">
+          <span className="ml-auto shrink-0 font-jetbrains text-[10px] tabular-nums text-gdb-fgdim/70">
             {routine.language ?? routine.type}
           </span>
         </div>
@@ -792,6 +833,9 @@ function TriggerNode({
   const detail = [trigger.timing, trigger.event, trigger.targetTable]
     .filter(Boolean)
     .join(" · ");
+  const meta =
+    trigger.targetTable ??
+    ([trigger.timing, trigger.event].filter(Boolean).join(" ") || undefined);
 
   return (
     <ContextMenu>
@@ -804,14 +848,19 @@ function TriggerNode({
             render={
               <div
                 onClick={() => void openDdlInEditor()}
-                className="group flex cursor-pointer items-center gap-1.5 rounded-md h-[var(--gdb-row)] px-1 hover:bg-gdb-rowhover"
+                className="group flex min-w-0 cursor-pointer items-center gap-1.5 rounded-md h-[var(--gdb-row)] px-1.5 transition-colors hover:bg-gdb-rowhover"
               />
             }
           >
             <IjIcon name="trigger" />
-            <span className="flex-1 truncate text-xs font-jetbrains text-foreground">
+            <span className="min-w-0 flex-1 truncate text-xs font-jetbrains text-foreground">
               {trigger.name}
             </span>
+            {meta && (
+              <span className="ml-auto max-w-[45%] shrink-0 truncate font-jetbrains text-[10px] tabular-nums text-gdb-fgdim/70">
+                {meta}
+              </span>
+            )}
           </TooltipTrigger>
           {detail && <TooltipContent>{detail}</TooltipContent>}
         </Tooltip>

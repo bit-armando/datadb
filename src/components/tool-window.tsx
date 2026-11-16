@@ -161,8 +161,12 @@ export function ToolWindowDock({
     (clic en el activo = ocultar) y su clic derecho abre el mismo menú de opciones que tenía el ⋮.
   */
   return (
-    <div data-tool-window-dock={dock} data-tool-window-activa={active} className="flex h-full w-full min-w-0 flex-col">
-      <div className="min-h-0 flex-1">{children(active)}</div>
+    <div
+      data-tool-window-dock={dock}
+      data-tool-window-activa={active}
+      className="flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden bg-sidebar"
+    >
+      <div className="min-h-0 flex-1 overflow-hidden">{children(active)}</div>
     </div>
   );
 }
