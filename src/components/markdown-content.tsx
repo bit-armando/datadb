@@ -63,13 +63,14 @@ const components: Components = {
     <th className="border-b border-border/60 px-3 py-1.5 text-left font-medium font-jetbrains">{children}</th>
   ),
   td: ({ children }) => <td className="border-b border-border/40 px-3 py-1.5 font-jetbrains">{children}</td>,
+  pre: ({ children }) => <>{children}</>,
   code: ({ className, children, ...props }) => {
-    const isBlock = /language-/.test(className ?? "");
+    const isBlock = /language-/.test(className ?? "") || String(children).includes("\n");
     const text = String(children).replace(/\n$/, "");
     if (!isBlock) {
       return (
         <code
-          className="rounded bg-muted px-1.5 py-0.5 font-jetbrains text-[12.5px] text-foreground"
+          className="rounded bg-muted px-1.5 py-0.5 font-jetbrains text-[12.5px] text-foreground break-all"
           {...props}
         >
           {children}
@@ -77,21 +78,21 @@ const components: Components = {
       );
     }
     return (
-      <span className="group relative block">
-        <pre className="overflow-x-auto rounded-lg border border-border/60 bg-muted/40 p-3.5 font-jetbrains text-[12.5px] leading-6">
+      <div className="group relative min-w-0 max-w-full">
+        <pre className="max-w-full overflow-x-auto whitespace-pre-wrap break-words rounded-lg border border-border/60 bg-muted/40 p-3.5 font-jetbrains text-[12.5px] leading-6">
           <code className={className} {...props}>
             {text}
           </code>
         </pre>
         <InlineCodeCopyButton text={text} />
-      </span>
+      </div>
     );
   },
 };
 
 export function MarkdownContent({ content, className }: { content: string; className?: string }) {
   return (
-    <div className={cn("grid min-w-0 gap-2.5 break-words text-[13px] leading-relaxed", className)}>
+    <div className={cn("flex min-w-0 max-w-full flex-col gap-2.5 break-words [overflow-wrap:anywhere] text-[13px] leading-relaxed", className)}>
       <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
         {content}
       </ReactMarkdown>

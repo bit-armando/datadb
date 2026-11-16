@@ -38,6 +38,8 @@ import {
   AlertTriangleIcon,
   FileDiffIcon,
   Wand2Icon,
+  ChevronDownIcon,
+  ChevronUpIcon,
 } from "lucide-react";
 
 type SqlDialectType = "postgres" | "mysql" | "sqlserver";
@@ -142,6 +144,7 @@ function SqlBlock({
 }: SqlBlockProps) {
   const [copied, setCopied] = React.useState(false);
   const [showDiff, setShowDiff] = React.useState(false);
+  const [expanded, setExpanded] = React.useState(false);
   const risk = React.useMemo(() => detectSqlRisk(sql), [sql]);
   const readOnlyBlock = readOnly ? !isReadOnlyStatement(sql, sessionType) : false;
   const hasDiff = Boolean(activeSql?.trim() && activeSql.trim() !== sql.trim());
@@ -149,9 +152,12 @@ function SqlBlock({
     () => (showDiff && hasDiff && activeSql ? computeLineDiff(activeSql.trim(), sql.trim()) : null),
     [showDiff, hasDiff, activeSql, sql]
   );
+  const lineCount = React.useMemo(() => sql.split("\n").length, [sql]);
+  const displayedLineCount = showDiff && diffLines ? diffLines.length : lineCount;
+  const isLong = displayedLineCount > 16;
 
   return (
-    <div className="overflow-hidden rounded-lg border border-border/60 bg-gdb-editor">
+    <div className="min-w-0 max-w-full overflow-hidden rounded-lg border border-border/60 bg-gdb-editor">
       <div className="flex flex-wrap items-center justify-between gap-1 border-b border-border/60 bg-muted/30 px-3 py-1.5">
         <div className="flex items-center gap-1.5">
           <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
@@ -229,12 +235,17 @@ function SqlBlock({
         </div>
       </div>
       {showDiff && diffLines ? (
-        <div className="max-h-64 overflow-auto py-1 font-jetbrains text-[12px] leading-5">
+        <div
+          className={cn(
+            "py-1 font-jetbrains text-[12px] leading-5",
+            isLong && !expanded ? "max-h-72 overflow-y-auto" : "max-h-none"
+          )}
+        >
           {diffLines.map((line, idx) => (
             <div
               key={idx}
               className={cn(
-                "flex gap-2 whitespace-pre px-3",
+                "flex min-w-0 gap-2 whitespace-pre-wrap break-words px-3",
                 line.type === "remove" && "bg-gdb-dangerbg text-gdb-dangerfg",
                 line.type === "add" && "bg-gdb-okbg text-gdb-okfg",
                 line.type === "same" && "text-muted-foreground"
@@ -243,13 +254,34 @@ function SqlBlock({
               <span className="w-3 shrink-0 select-none opacity-70">
                 {line.type === "remove" ? "-" : line.type === "add" ? "+" : " "}
               </span>
-              <span>{line.text || " "}</span>
+              <span className="min-w-0 flex-1">{line.text || " "}</span>
             </div>
           ))}
         </div>
       ) : (
-        <div className="max-h-64 overflow-auto">
-          <CodePreview value={sql} language="sql" className="h-full" fontSize="13px" />
+        <div className={cn(isLong && !expanded ? "max-h-72 overflow-y-auto" : "max-h-none")}>
+          <CodePreview value={sql} language="sql" wrapLines className="h-full" fontSize="13px" />
+        </div>
+      )}
+      {isLong && (
+        <div className="border-t border-border/60 bg-muted/20 px-3 py-1">
+          <button
+            type="button"
+            onClick={() => setExpanded((v) => !v)}
+            className="flex w-full items-center justify-center gap-1 rounded py-0.5 text-[11px] text-muted-foreground transition-colors hover:text-foreground"
+          >
+            {expanded ? (
+              <>
+                <ChevronUpIcon className="size-3" />
+                Contraer
+              </>
+            ) : (
+              <>
+                <ChevronDownIcon className="size-3" />
+                Mostrar todo ({displayedLineCount} líneas)
+              </>
+            )}
+          </button>
         </div>
       )}
     </div>
@@ -297,6 +329,7 @@ export function AiChatPanel() {
   const [aiSettingsOpen, setAiSettingsOpen] = React.useState(false);
   const abortRef = React.useRef<AbortController | null>(null);
   const scrollRootRef = React.useRef<HTMLDivElement>(null);
+  const stickToBottomRef = React.useRef(true);
   const textareaRef = React.useRef<HTMLTextAreaElement>(null);
 
   // El chat IA opera sobre la conexión de la consola con foco (multi-conexión).
@@ -340,7 +373,21 @@ export function AiChatPanel() {
 
   // El elemento que realmente hace scroll es el Viewport interno de
   // ScrollArea (Base UI), no el Root al que apunta la ref del componente.
+  React.useEffect(() => {
+    const viewport = scrollRootRef.current?.querySelector<HTMLElement>(
+      '[data-slot="scroll-area-viewport"]'
+    );
+    if (!viewport) return;
+    const onScroll = () => {
+      stickToBottomRef.current =
+        viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight < 80;
+    };
+    viewport.addEventListener("scroll", onScroll, { passive: true });
+    return () => viewport.removeEventListener("scroll", onScroll);
+  }, []);
+
   React.useLayoutEffect(() => {
+    if (!stickToBottomRef.current) return;
     const viewport = scrollRootRef.current?.querySelector<HTMLElement>(
       '[data-slot="scroll-area-viewport"]'
     );
@@ -411,6 +458,7 @@ export function AiChatPanel() {
     const prompt = input.trim();
     if (!prompt) return;
 
+    stickToBottomRef.current = true;
     const userMsg = makeUserChatMessage(prompt);
     const assistantMsg = makeAssistantChatMessage("");
     dispatch({ type: "ADD_AI_MESSAGE", payload: userMsg });
@@ -490,6 +538,7 @@ export function AiChatPanel() {
       if (!activeStatement) toast.info(`No hay un statement activo para ${label.toLowerCase()}`);
       return;
     }
+    stickToBottomRef.current = true;
     dispatch({ type: "ADD_AI_MESSAGE", payload: makeUserChatMessage(`${label}:\n\n${activeStatement}`) });
     setBusy(true);
     dispatch({ type: "SET_AI_BUSY", payload: true });
@@ -589,9 +638,9 @@ export function AiChatPanel() {
         </div>
       </div>
 
-      <div ref={scrollRootRef} className="min-h-0 flex-1">
+      <div ref={scrollRootRef} className="min-h-0 min-w-0 flex-1">
         <ScrollArea className="h-full">
-          <div className="grid gap-5 p-3">
+          <div className="flex min-w-0 flex-col gap-5 p-3">
             {state.aiMessages.length === 0 && (
               <div className="flex flex-col items-center justify-center gap-2 py-12 text-muted-foreground">
                 <MessageSquareIcon className="size-8 opacity-20" />
@@ -603,18 +652,18 @@ export function AiChatPanel() {
             )}
             {[...state.aiMessages].reverse().map((msg, i) =>
               msg.role === "user" ? (
-                <div key={i} className="flex flex-col items-end gap-1 pl-2">
-                  <div className="max-w-[95%] rounded-2xl rounded-tr-sm border border-primary/25 bg-primary/15 px-3.5 py-2.5 text-[13px] leading-relaxed text-foreground shadow-sm">
-                    <div className="whitespace-pre-wrap break-words">{msg.content}</div>
+                <div key={i} className="flex min-w-0 flex-col items-end gap-1 pl-2">
+                  <div className="min-w-0 max-w-[95%] rounded-2xl rounded-tr-sm border border-primary/25 bg-primary/15 px-3.5 py-2.5 text-[13px] leading-relaxed text-foreground shadow-sm">
+                    <div className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{msg.content}</div>
                   </div>
                   <span className="mr-1 text-[10px] text-muted-foreground">Tú</span>
                 </div>
               ) : (
-                <div key={i} className="flex gap-3 pr-2">
+                <div key={i} className="flex min-w-0 gap-3 pr-2">
                   <span className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-md border border-border/60 bg-muted">
                     <SparklesIcon className="size-3.5 text-primary" />
                   </span>
-                  <div className="grid min-w-0 flex-1 gap-2.5">
+                  <div className="flex min-w-0 flex-1 flex-col gap-2.5">
                     <span className="text-xs font-medium text-muted-foreground">DataDB IA</span>
                     {splitContent(msg.content).map((seg, j) =>
                       seg.kind === "sql" ? (
@@ -645,7 +694,7 @@ export function AiChatPanel() {
               )
             )}
             {busy && (
-              <div className="flex items-start gap-3 text-[11px] text-muted-foreground">
+              <div className="flex min-w-0 items-start gap-3 text-[11px] text-muted-foreground">
                 <span className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-md border border-border/60 bg-muted">
                   <SparklesIcon className="size-3.5 animate-pulse text-primary" />
                 </span>
@@ -659,7 +708,7 @@ export function AiChatPanel() {
                     <div className="mb-1 flex items-center gap-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground/70">
                       Razonando…
                     </div>
-                    <div className="max-h-24 overflow-hidden whitespace-pre-wrap text-muted-foreground/80 [mask-image:linear-gradient(to_bottom,black_60%,transparent)]">
+                    <div className="max-h-24 overflow-hidden whitespace-pre-wrap break-words text-muted-foreground/80 [mask-image:linear-gradient(to_bottom,black_60%,transparent)]">
                       {reasoning.slice(-600)}
                     </div>
                   </div>

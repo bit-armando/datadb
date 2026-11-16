@@ -19,6 +19,8 @@ export interface CodePreviewProps {
   className?: string;
   /** Tamaño de fuente del bloque (CSS), p.ej. "13px". */
   fontSize?: string;
+  /** Ajustar líneas largas al ancho del contenedor en vez de mantenerlas en una sola línea. */
+  wrapLines?: boolean;
 }
 
 /** Dialecto del lexer que le corresponde a cada lenguaje (null = sin colorear). */
@@ -30,7 +32,7 @@ const dialectoDe: Record<CodePreviewProps["language"], Dialecto | null> = {
   text: null,
 };
 
-export function CodePreview({ value, language, className, fontSize }: CodePreviewProps) {
+export function CodePreview({ value, language, className, fontSize, wrapLines }: CodePreviewProps) {
   const lineas = React.useMemo(() => value.split("\n"), [value]);
 
   const tokens = React.useMemo(() => {
@@ -62,7 +64,7 @@ export function CodePreview({ value, language, className, fontSize }: CodePrevie
           });
           if (cursor < linea.length) tramos.push(linea.slice(cursor));
           return (
-            <div key={i} className="whitespace-pre">
+            <div key={i} className={cn(wrapLines ? "whitespace-pre-wrap break-words" : "whitespace-pre")}>
               {tramos.length ? tramos : linea || " "}
             </div>
           );
