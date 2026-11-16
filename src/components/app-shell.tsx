@@ -222,6 +222,9 @@ export function AppShell() {
   // sesión; el vertical se desmonta y se vuelve a montar al cambiar entre la pestaña SQL y una de tabla, así que
   // al volver recupera lo último guardado (antes volvía siempre al 45/55 de fábrica).
   const sqlTabActive = state.activeTabId === "sql";
+  const isMongoConsole =
+    activeConsole.session?.type === "mongodb" ||
+    (!activeConsole.session && activeConsole.binding?.type === "mongodb");
   const mainGroupRef = useGroupRef();
   const editorGroupRef = useGroupRef();
   const mainDefaultLayout = React.useMemo(
@@ -229,8 +232,8 @@ export function AppShell() {
     [anyConnected]
   );
   const editorDefaultLayout = React.useMemo(
-    () => (sqlTabActive ? getLayoutState().sizes[LAYOUT_GROUPS.editor] : undefined) ?? DEFAULT_GROUP_SIZES[LAYOUT_GROUPS.editor],
-    [sqlTabActive]
+    () => (sqlTabActive && !isMongoConsole ? getLayoutState().sizes[LAYOUT_GROUPS.editor] : undefined) ?? DEFAULT_GROUP_SIZES[LAYOUT_GROUPS.editor],
+    [sqlTabActive, isMongoConsole]
   );
 
   React.useEffect(
@@ -273,10 +276,11 @@ export function AppShell() {
 
   React.useEffect(() => {
     // Fase 9 (T2): el dock inferior (resultados/historial) se colapsa cuando ninguna de sus tool windows
-    // está visible. T4: `sqlTabActive` en las deps porque su Group se desmonta con una pestaña de tabla y se
-    // vuelve a montar al regresar a la consola: sin re-sincronizar, un dock inferior oculto reaparecía abierto.
+    // está visible. T4: `sqlTabActive` e `isMongoConsole` en las deps porque su Group se desmonta con una
+    // pestaña de tabla o consola Mongo y se vuelve a montar al regresar a SQL: sin re-sincronizar, un dock
+    // inferior oculto reaparecía abierto.
     syncDockPanel(resultsPanelRef.current, bottomDockVisible, LAYOUT_GROUPS.editor, "sql-results-panel");
-  }, [bottomDockVisible, resultsPanelRef, anyConnected, sqlTabActive]);
+  }, [bottomDockVisible, resultsPanelRef, anyConnected, sqlTabActive, isMongoConsole]);
 
   React.useEffect(() => {
     // Fase 9 (R12): el explorador (tool window) sigue al store del layout. `isCollapsed()` evita
@@ -841,72 +845,73 @@ export function AppShell() {
 
           <div className="min-h-0 flex-1">
             {state.activeTabId === "sql" ? (
-              /*
-                La consola SQL se muestra SIEMPRE que haya al menos una consola
-                conectada. Si la consola con foco no tiene sesión, su propia
-                barra de conexión (ConsoleConnectionBar dentro de SqlEditor)
-                muestra el estado "sin conectar" y el flujo para conectarla, sin
-                bloquear el editor ni las demás consolas.
-              */
-              <Group
-                id={LAYOUT_GROUPS.editor}
-                orientation="vertical"
-                groupRef={editorGroupRef}
-                defaultLayout={editorDefaultLayout}
-                onLayoutChanged={(sizes, meta) => commitGroupLayout(LAYOUT_GROUPS.editor, sizes, meta.isUserInteraction)}
-              >
-                <Panel id="sql-editor-panel" defaultSize="45" minSize="15">
-                  {/* Fase 80: Mongo no escribe SQL. La consola monta su propio panel y el editor
-                      SQL queda fuera hasta que exista la vista de documentos. */}
-                  {activeConsole.session?.type === "mongodb" ? (
-                    <MongoConsole session={activeConsole.session} />
-                  ) : !activeConsole.session && activeConsole.binding?.type === "mongodb" ? (
-                    // R91: consola de Mongo DORMIDA. Su vista vive de la sesión (colecciones,
-                    // documentos), así que se ofrece abrirla en vez de montarla vacía.
-                    <div className="flex h-full flex-col items-center justify-center gap-2 text-xs text-muted-foreground">
-                      <IjIcon name="database" size={32} className="opacity-40" />
-                      <p>
-                        {activeConsole.binding.name}
-                        {activeConsole.binding.database ? ` · ${activeConsole.binding.database}` : ""} — sin conectar
-                      </p>
-                      <button
-                        type="button"
-                        className="rounded border border-gdb-border px-2.5 py-1 text-gdb-fg hover:bg-gdb-hover"
-                        onClick={() => {
-                          const b = activeConsole.binding;
-                          const consoleId = activeConsole.id;
-                          if (!b) return;
-                          void wakeBinding(b)
-                            .then(({ session: s, databaseError }) => {
-                              if (databaseError) toast.warning(`No se pudo abrir la base ${b.database}: ${databaseError}`);
-                              dispatch({ type: "SET_SESSION", payload: { consoleId, session: s } });
-                            })
-                            .catch((err) => toast.error(String(err)));
-                        }}
-                      >
-                        Conectar
-                      </button>
-                    </div>
-                  ) : (
-                    <SqlEditor txMode={txMode} />
-                  )}
-                </Panel>
-                <Separator className="relative h-px cursor-row-resize bg-gdb-sep transition-colors hover:bg-gdb-accent data-[resize-handle-active]:bg-gdb-accent after:absolute after:inset-x-0 after:-inset-y-1 after:content-['']" />
-                <Panel
-                  id="sql-results-panel"
-                  defaultSize="55"
-                  minSize="15"
-                  collapsible
-                  collapsedSize="0"
-                  panelRef={resultsPanelRef}
+              isMongoConsole ? (
+                /* Fase 80: Mongo no escribe SQL ni usa el dock inferior de resultados SQL; ocupa toda el área. */
+                activeConsole.session?.type === "mongodb" ? (
+                  <MongoConsole session={activeConsole.session} />
+                ) : (
+                  // R91: consola de Mongo DORMIDA. Su vista vive de la sesión (colecciones,
+                  // documentos), así que se ofrece abrirla en vez de montarla vacía.
+                  <div className="flex h-full flex-col items-center justify-center gap-2 text-xs text-muted-foreground">
+                    <IjIcon name="database" size={32} className="opacity-40" />
+                    <p>
+                      {activeConsole.binding?.name}
+                      {activeConsole.binding?.database ? ` · ${activeConsole.binding.database}` : ""} — sin conectar
+                    </p>
+                    <button
+                      type="button"
+                      className="rounded border border-gdb-border px-2.5 py-1 text-gdb-fg hover:bg-gdb-hover"
+                      onClick={() => {
+                        const b = activeConsole.binding;
+                        const consoleId = activeConsole.id;
+                        if (!b) return;
+                        void wakeBinding(b)
+                          .then(({ session: s, databaseError }) => {
+                            if (databaseError) toast.warning(`No se pudo abrir la base ${b.database}: ${databaseError}`);
+                            dispatch({ type: "SET_SESSION", payload: { consoleId, session: s } });
+                          })
+                          .catch((err) => toast.error(String(err)));
+                      }}
+                    >
+                      Conectar
+                    </button>
+                  </div>
+                )
+              ) : (
+                /*
+                  La consola SQL se muestra SIEMPRE que haya al menos una consola
+                  conectada. Si la consola con foco no tiene sesión, su propia
+                  barra de conexión (ConsoleConnectionBar dentro de SqlEditor)
+                  muestra el estado "sin conectar" y el flujo para conectarla, sin
+                  bloquear el editor ni las demás consolas.
+                */
+                <Group
+                  id={LAYOUT_GROUPS.editor}
+                  orientation="vertical"
+                  groupRef={editorGroupRef}
+                  defaultLayout={editorDefaultLayout}
+                  onLayoutChanged={(sizes, meta) => commitGroupLayout(LAYOUT_GROUPS.editor, sizes, meta.isUserInteraction)}
                 >
-                  {/* Fase 9 (T2): dock inferior — Resultados e Historial, como pestañas (antes el historial
-                      era un overlay sobre el editor y los resultados vivían solos). El «minimizar» de la tira
-                      de resultados ahora oculta la tool window entera (modo Ocultar, D2); se restaura desde la
-                      barra o desde el botón del header. */}
-                  <ToolWindowDock dock="bottom">{renderToolWindow}</ToolWindowDock>
-                </Panel>
-              </Group>
+                  <Panel id="sql-editor-panel" defaultSize="45" minSize="15">
+                    <SqlEditor txMode={txMode} />
+                  </Panel>
+                  <Separator className="relative h-px cursor-row-resize bg-gdb-sep transition-colors hover:bg-gdb-accent data-[resize-handle-active]:bg-gdb-accent after:absolute after:inset-x-0 after:-inset-y-1 after:content-['']" />
+                  <Panel
+                    id="sql-results-panel"
+                    defaultSize="55"
+                    minSize="15"
+                    collapsible
+                    collapsedSize="0"
+                    panelRef={resultsPanelRef}
+                  >
+                    {/* Fase 9 (T2): dock inferior — Resultados e Historial, como pestañas (antes el historial
+                        era un overlay sobre el editor y los resultados vivían solos). El «minimizar» de la tira
+                        de resultados ahora oculta la tool window entera (modo Ocultar, D2); se restaura desde la
+                        barra o desde el botón del header. */}
+                    <ToolWindowDock dock="bottom">{renderToolWindow}</ToolWindowDock>
+                  </Panel>
+                </Group>
+              )
             ) : (
               (() => {
                 const tab = state.tableTabs.find((t) => t.id === state.activeTabId);
