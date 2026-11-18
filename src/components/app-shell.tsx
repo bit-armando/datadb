@@ -742,8 +742,15 @@ export function AppShell() {
 
 
 
-  function handleNavigateFk(schema: string, table: string, column: string, value: unknown) {
-    setFkQuickTarget({ schema, table, column, value });
+  function handleNavigateFk(
+    schema: string,
+    table: string,
+    column: string,
+    value: unknown,
+    sourceTable?: string,
+    sourceColumn?: string
+  ) {
+    setFkQuickTarget({ schema, table, column, value, sourceTable, sourceColumn });
   }
 
   function handleOpenFkInTab(target: FkQuickTarget) {

@@ -175,8 +175,15 @@ export function TableViewTab({ tab }: TableViewTabProps) {
 
   const [fkQuickTarget, setFkQuickTarget] = React.useState<FkQuickTarget | null>(null);
 
-  function handleNavigateFk(schema: string, table: string, column: string, value: unknown) {
-    setFkQuickTarget({ schema, table, column, value });
+  function handleNavigateFk(
+    schema: string,
+    table: string,
+    column: string,
+    value: unknown,
+    sourceTable?: string,
+    sourceColumn?: string
+  ) {
+    setFkQuickTarget({ schema, table, column, value, sourceTable, sourceColumn });
   }
 
   function handleOpenFkInTab(fkTarget: FkQuickTarget) {

@@ -65,7 +65,14 @@ type RowData = Record<string, unknown> & { __newId?: string };
 interface ResultsGridProps {
   result: QueryResult;
   tableContext: TableContext | null;
-  onNavigateFk?: (schema: string, table: string, column: string, value: unknown) => void;
+  onNavigateFk?: (
+    schema: string,
+    table: string,
+    column: string,
+    value: unknown,
+    sourceTable?: string,
+    sourceColumn?: string
+  ) => void;
   onRefresh?: () => Promise<void> | void;
   offset?: number;
   onPrevPage?: () => Promise<void> | void;
@@ -688,7 +695,7 @@ export const ResultsGrid = React.memo(function ResultsGrid({
         const real = columnaReal(celda.columna);
         const meta = tableContext?.columns.find((c) => c.name === real);
         if (!meta?.fk) return false;
-        onNavigateFk(meta.fk.schema, meta.fk.table, meta.fk.column, celda.valor);
+        onNavigateFk(meta.fk.schema, meta.fk.table, meta.fk.column, celda.valor, tableContext?.table, real);
         return true;
       },
       // #18 Refresh (⌘R): re-ejecutar la consulta de ESTA rejilla. `onRefresh` es el prop que ya
@@ -715,7 +722,7 @@ export const ResultsGrid = React.memo(function ResultsGrid({
     const meta = tableContext?.columns.find((c) => c.name === real);
     const fila = editedData[menuContextual.indice];
     if (!meta?.fk || !fila) return null;
-    return { fk: meta.fk, valor: fila[menuContextual.columna] };
+    return { fk: meta.fk, valor: fila[menuContextual.columna], sourceColumn: real };
   }, [menuContextual, tableContext, editedData, columnaReal]);
 
   return (
@@ -1041,10 +1048,11 @@ export const ResultsGrid = React.memo(function ResultsGrid({
             onClickFk={
               onNavigateFk && tableContext
                 ? (nombre, indiceOriginal) => {
-                    const meta = tableContext.columns.find((c) => c.name === columnaReal(nombre));
+                    const real = columnaReal(nombre);
+                    const meta = tableContext.columns.find((c) => c.name === real);
                     const fila = editedData[indiceOriginal];
                     if (!meta?.fk || !fila) return;
-                    onNavigateFk(meta.fk.schema, meta.fk.table, meta.fk.column, fila[nombre]);
+                    onNavigateFk(meta.fk.schema, meta.fk.table, meta.fk.column, fila[nombre], tableContext.table, real);
                   }
                 : undefined
             }
@@ -1204,7 +1212,9 @@ export const ResultsGrid = React.memo(function ResultsGrid({
                     fkDelMenu.fk.schema,
                     fkDelMenu.fk.table,
                     fkDelMenu.fk.column,
-                    fkDelMenu.valor
+                    fkDelMenu.valor,
+                    tableContext?.table,
+                    fkDelMenu.sourceColumn
                   );
                 }}
               >

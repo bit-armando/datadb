@@ -10,7 +10,14 @@ import { firmaDeColumnas, type TextosDeFiltro } from "@/components/grid/filterin
 const SIN_FILTROS: TextosDeFiltro = {};
 
 interface ResultTabsPanelProps {
-  onNavigateFk?: (schema: string, table: string, column: string, value: unknown) => void;
+  onNavigateFk?: (
+    schema: string,
+    table: string,
+    column: string,
+    value: unknown,
+    sourceTable?: string,
+    sourceColumn?: string
+  ) => void;
   onRefresh?: () => Promise<void> | void;
   onPageChange?: (tabId: string, direction: "next" | "prev") => Promise<void> | void;
   minimized?: boolean;
