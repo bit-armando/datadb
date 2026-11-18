@@ -218,3 +218,11 @@ dmg:
   window:
     width: 540
     height: 380
+
+# Linux: icono propio con esquinas transparentes (build/icon.png es el de macOS, con fondo blanco
+# en las esquinas, y macOS sigue usando ese). No cambia nada del empaquetado de macOS.
+linux:
+  category: Development
+  icon: build/linux-icon.png
+  target:
+    - AppImage
