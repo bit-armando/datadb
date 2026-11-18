@@ -30,6 +30,7 @@ import {
   mongoInsertHandler,
   mongoUpdateHandler,
 } from "@/server/handlers/mongo";
+import { listAwsProfilesHandler } from "@/server/handlers/aws";
 import { favoritesGetHandler, favoritesSetHandler } from "@/server/handlers/favorites";
 import {
   deleteProfileHandler,
@@ -74,6 +75,7 @@ const send = (msg: FromWorker) => port.postMessage(msg);
  */
 const handlers: Handlers = {
     "profiles:list": listProfilesHandler,
+    "aws:profiles": listAwsProfilesHandler,
     "session:connect": connectHandler,
     "session:get": getSessionHandler,
     "databases:list": listDatabasesHandler,

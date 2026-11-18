@@ -68,6 +68,7 @@ import {
   connect as apiConnect,
   deleteProfile,
   listDatabases,
+  listAwsProfiles,
   listProfiles,
   pickFile,
   saveProfile,
@@ -80,8 +81,10 @@ import { cn } from "@/lib/utils";
 import { readOnlyEnforcedByDatabase, readOnlyProtectionNote } from "@/server/db/read-only-session";
 import {
   PUERTO_POR_MOTOR,
+  regionDeHost,
   SSH_POR_DEFECTO,
   TLS_POR_DEFECTO,
+  type AuthConfig,
   type ModoTls,
   type SshConfig,
   type TlsConfig,
@@ -222,6 +225,11 @@ export function ConnectionsModal({
   const [profiles, setProfiles] = React.useState<ConnectionProfile[]>([]);
   const [seleccionId, setSeleccionId] = React.useState<string | null>(null);
   const [form, setForm] = React.useState<ConnectionProfileInput>({ ...FORM_VACIO });
+  const [perfilesAws, setPerfilesAws] = React.useState<string[]>([]);
+  const usaIam = !!form.auth;
+  React.useEffect(() => {
+    if (usaIam) listAwsProfiles().then(setPerfilesAws, () => undefined);
+  }, [usaIam]);
   /** id del perfil que se está EDITANDO (null = perfil nuevo, todavía sin guardar). */
   const [editingId, setEditingId] = React.useState<string | null>(null);
   const [ocupado, setOcupado] = React.useState<"probar" | "guardar" | "borrar" | null>(null);
@@ -254,6 +262,7 @@ export function ConnectionsModal({
       readOnly: perfil.readOnly,
       tls: perfil.tls ? { ...perfil.tls } : { ...TLS_POR_DEFECTO },
       ssh: perfil.ssh ? { ...perfil.ssh } : { ...SSH_POR_DEFECTO },
+      ...(perfil.auth ? { auth: { ...perfil.auth } } : {}),
     });
   }, []);
 
@@ -393,6 +402,17 @@ export function ConnectionsModal({
       if (!ssh.enabled) return { ...prev, ssh: { ...SSH_POR_DEFECTO } };
       if (ssh.auth !== "key") delete ssh.keyFile;
       return { ...prev, ssh };
+    });
+  }
+
+  /** IAM: al activarlo se propone la región del host y se sube TLS a «requerido» (RDS lo exige). */
+  function cambiarAuth(patch: Partial<AuthConfig> | null) {
+    setPrueba(null);
+    setForm((prev) => {
+      if (!patch) return { ...prev, auth: undefined };
+      const auth: AuthConfig = { mode: "iam", region: regionDeHost(prev.host), ...prev.auth, ...patch };
+      const tls = prev.tls && prev.tls.mode !== "deshabilitado" ? prev.tls : { ...TLS_POR_DEFECTO, mode: "requerido" as const };
+      return { ...prev, auth, tls, password: "" };
     });
   }
 
@@ -663,7 +683,10 @@ export function ConnectionsModal({
                 <Etiqueta>Host</Etiqueta>
                 <Input
                   value={form.host}
-                  onChange={(e) => cambiar("host", e.target.value)}
+                  onChange={(e) => {
+                    cambiar("host", e.target.value);
+                    if (form.auth && !form.auth.region) cambiarAuth({ region: regionDeHost(e.target.value) });
+                  }}
                   placeholder="127.0.0.1"
                   className="h-7 min-w-0 text-xs"
                 />
@@ -686,6 +709,7 @@ export function ConnectionsModal({
                 />
               </Fila>
 
+              {!form.auth && (
               <Fila etiqueta="Contraseña">
                 <div className="grid gap-1">
                   <Input
@@ -707,6 +731,51 @@ export function ConnectionsModal({
                   <span className="text-[10px] text-gdb-fgdim">Se guarda cifrado</span>
                 </div>
               </Fila>
+              )}
+              {(form.type === "postgres" || form.type === "mysql") && (
+                <>
+                  <Fila etiqueta="IAM (AWS)">
+                    <label className="flex items-center gap-2 pt-1 text-xs text-gdb-fg">
+                      <input
+                        type="checkbox"
+                        checked={!!form.auth}
+                        onChange={(e) => cambiarAuth(e.target.checked ? {} : null)}
+                        className="size-3.5 accent-primary"
+                        aria-label="Autenticar con IAM"
+                      />
+                      Token de RDS/Aurora en lugar de contraseña
+                    </label>
+                  </Fila>
+                  {form.auth && (
+                    <>
+                      <Fila etiqueta="Región">
+                        <Input
+                          value={form.auth.region}
+                          onChange={(e) => cambiarAuth({ region: e.target.value })}
+                          placeholder="us-east-2"
+                          aria-label="Región de AWS"
+                          className="h-7 text-xs"
+                        />
+                      </Fila>
+                      <Fila etiqueta="Perfil AWS">
+                        <Input
+                          list="aws-perfiles"
+                          value={form.auth.awsProfile ?? ""}
+                          onChange={(e) => cambiarAuth({ awsProfile: e.target.value })}
+                          placeholder="vacío = credenciales por defecto"
+                          aria-label="Perfil de AWS"
+                          className="h-7 text-xs"
+                        />
+                        <datalist id="aws-perfiles">
+                          {perfilesAws.map((nombre) => (
+                            <option key={nombre} value={nombre} />
+                          ))}
+                        </datalist>
+                      </Fila>
+                    </>
+                  )}
+                </>
+              )}
 
               <Fila etiqueta="Base de datos">
                 <div className="flex items-center gap-1">

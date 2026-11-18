@@ -57,6 +57,13 @@ export interface SshConfig {
   hasPassphrase?: boolean;
 }
 
+/** `iam`: el token de RDS reemplaza la contraseña; las credenciales salen de la cadena estándar de AWS. */
+export interface AuthConfig {
+  mode: "iam";
+  region: string;
+  awsProfile?: string;
+}
+
 export const TLS_POR_DEFECTO: TlsConfig = { mode: "deshabilitado" };
 
 export const SSH_POR_DEFECTO: SshConfig = {
@@ -108,6 +115,20 @@ export function normalizarTls(entrada: unknown): TlsConfig {
   return cfg;
 }
 
+/** `undefined` = usuario y contraseña de siempre. */
+export function normalizarAuth(entrada: unknown): AuthConfig | undefined {
+  if (!entrada || typeof entrada !== "object") return undefined;
+  const a = entrada as Record<string, unknown>;
+  if (a.mode !== "iam") return undefined;
+  const awsProfile = texto(a.awsProfile);
+  return { mode: "iam", region: texto(a.region), ...(awsProfile ? { awsProfile } : {}) };
+}
+
+/** Región de un endpoint de RDS/Aurora/Proxy; "" si el host no es de AWS (dominio propio). */
+export function regionDeHost(host: string): string {
+  return /\.([a-z]{2}(?:-[a-z]+)+-\d)\.rds\.amazonaws\.com(?:\.cn)?$/.exec(host.trim().toLowerCase())?.[1] ?? "";
+}
+
 /**
  * Normaliza SSH. Si `enabled` es falso se devuelve el objeto por defecto (sin host ni usuario), para
  * que apagar el túnel no deje datos a medio llenar en el JSON.
@@ -134,8 +155,12 @@ export function normalizarSsh(entrada: unknown): SshConfig {
  * abrir nada: un modo «verificar-ca» sin archivo de CA falla al conectar con un mensaje del driver
  * que no dice qué campo falta.
  */
-export function problemasDeRed(tls: TlsConfig | undefined, ssh: SshConfig | undefined): string[] {
+export function problemasDeRed(tls: TlsConfig | undefined, ssh: SshConfig | undefined, auth?: AuthConfig): string[] {
   const problemas: string[] = [];
+  if (auth) {
+    if (!auth.region) problemas.push("IAM: falta la región");
+    if (!tls || tls.mode === "deshabilitado") problemas.push("IAM: requiere TLS");
+  }
   if (tls && (tls.mode === "verificar-ca" || tls.mode === "mutuo") && !tls.caFile) {
     problemas.push("TLS: falta el archivo de CA");
   }
@@ -156,9 +181,10 @@ export function problemasDeRed(tls: TlsConfig | undefined, ssh: SshConfig | unde
  * MISMO pool, pero solo si además comparten TLS y túnel: uno cifrado y otro sin cifrar no pueden
  * compartir conexión. Sin esto, el perfil con túnel heredaría el pool del directo.
  */
-export function claveDeRed(tls?: TlsConfig, ssh?: SshConfig): string {
+export function claveDeRed(tls?: TlsConfig, ssh?: SshConfig, auth?: AuthConfig): string {
   return JSON.stringify({
     tls: tls ?? null,
+    auth: auth ?? null,
     ssh: ssh?.enabled
       ? { host: ssh.host, port: ssh.port, user: ssh.user, auth: ssh.auth, keyFile: ssh.keyFile ?? "" }
       : null,

@@ -3,7 +3,7 @@ import {
   type AiSettingsWithKeyStatus,
 } from "./ai-types";
 
-import type { MotorDeConexion, SshConfig, TlsConfig } from "@/shared/connection-net";
+import type { AuthConfig, MotorDeConexion, SshConfig, TlsConfig } from "@/shared/connection-net";
 
 export interface ConnectionProfile {
   id: string;
@@ -32,6 +32,8 @@ export interface ConnectionProfile {
   tls?: TlsConfig;
   /** Túnel SSH (fase 80). Opcional por la misma razón. */
   ssh?: SshConfig;
+  /** Autenticación IAM de RDS/Aurora (PostgreSQL y MySQL). Sin él, se usa `password`. */
+  auth?: AuthConfig;
   /**
    * SOLO EN MEMORIA. Contraseña del salto SSH y frase de paso de su clave: se descifran en el
    * worker justo antes de conectar (igual que `password`) y nunca se escriben en `connections.json`.

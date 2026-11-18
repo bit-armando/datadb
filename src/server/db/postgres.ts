@@ -1,3 +1,6 @@
+import { generarTokenIam } from "@/server/auth/rds-iam";
+import { sslParaDriver } from "@/server/net/tls-sql";
+import { normalizarAuth } from "@/shared/connection-net";
 import { Pool, types as pgTypes, type PoolClient, type QueryResult as PgQueryResult } from "pg";
 import type {
   ColumnMeta,
@@ -65,8 +68,9 @@ export class PostgresDriver implements DatabaseDriver {
       host: config.host,
       port: config.port || 5432,
       user: config.user,
-      password: config.password,
+      password: normalizarAuth(config.auth) ? () => generarTokenIam(config) : config.password,
       database: config.database,
+      ssl: sslParaDriver(config.tls, config.auth),
       max: 5,
       connectionTimeoutMillis: 8000,
       // R53: en perfiles de solo lectura la propia base rechaza escrituras (ver read-only-session.ts).

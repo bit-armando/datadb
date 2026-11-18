@@ -33,6 +33,8 @@ rejilla de resultados rápida, diagramas ER y un asistente de IA para tareas SQL
 - **Contraseñas cifradas** con el Llavero de macOS (`safeStorage`); el archivo de conexiones nunca las guarda.
 - **TLS** configurable, **túnel SSH** (contraseña o llave) y **modo solo lectura** por conexión, que bloquea
   INSERT/UPDATE/DELETE/DDL.
+- **Autenticación IAM de RDS/Aurora** (PostgreSQL y MySQL): el token se firma al conectar, sin guardar contraseña.
+  Ver [Autenticación IAM](#autenticación-iam-rdsaurora).
 - **Color por conexión** que tiñe el explorador y las pestañas, para distinguir producción de desarrollo de un vistazo.
 - Cada consola tiene **su propia conexión y base de datos**; si la sesión caduca, se reconecta con un clic desde
   cualquier vista.
@@ -227,6 +229,22 @@ index.html       entrada de Vite
 
 Flujo: `renderer --invoke--> main (valida) --postMessage--> db-worker --> drivers`. `main` no toca
 ninguna base de datos: valida el remitente, aplica la lista blanca de canales y reenvía.
+
+## Autenticación IAM (RDS/Aurora)
+
+En la conexión marca **IAM (AWS)**, indica la región (se propone a partir del host) y, si no usas las credenciales por
+defecto, el perfil de `~/.aws`. DataDB firma un token de 15 minutos con la cadena estándar de credenciales de AWS
+(perfiles, SSO, variables de entorno) cada vez que abre una conexión. RDS exige TLS: el modo **Requerido** basta; con
+**Verificar CA** elige el [bundle de RDS](https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem).
+
+Requisitos del lado de la base:
+
+- Cluster con IAM habilitado y un usuario de base de datos preparado: PostgreSQL `GRANT rds_iam TO usuario;`,
+  MySQL `CREATE USER usuario IDENTIFIED WITH AWSAuthenticationPlugin AS 'RDS';`.
+- Política IAM con `rds-db:connect` sobre `arn:aws:rds-db:REGIÓN:CUENTA:dbuser:cluster-XXXX/usuario`
+  (el ID de recurso del cluster, no su nombre; con RDS Proxy, el `prx-…`).
+- Si usas el túnel SSH, ten en cuenta que aún no aplica a PostgreSQL/MySQL; conecta por VPN o a un endpoint alcanzable.
+- Si la sesión SSO venció, la app lo indica: corre `aws sso login`.
 
 ## Asistente de IA (opcional)
 

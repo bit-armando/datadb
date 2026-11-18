@@ -31,6 +31,24 @@ files:
   # estar aquí (antes pesaban la mitad del .asar). Esta lista la genera
   # `node scripts/deps-runtime.mjs` leyendo los `require()` reales de `out/main` y cerrando las
   # dependencias transitivas: NO se edita a mano.
+  - node_modules/@aws-sdk/core/**
+  - node_modules/@aws-sdk/credential-provider-cognito-identity/**
+  - node_modules/@aws-sdk/credential-provider-env/**
+  - node_modules/@aws-sdk/credential-provider-http/**
+  - node_modules/@aws-sdk/credential-provider-ini/**
+  - node_modules/@aws-sdk/credential-provider-login/**
+  - node_modules/@aws-sdk/credential-provider-node/**
+  - node_modules/@aws-sdk/credential-provider-process/**
+  - node_modules/@aws-sdk/credential-provider-sso/**
+  - node_modules/@aws-sdk/credential-provider-web-identity/**
+  - node_modules/@aws-sdk/credential-providers/**
+  - node_modules/@aws-sdk/nested-clients/**
+  - node_modules/@aws-sdk/rds-signer/**
+  - node_modules/@aws-sdk/signature-v4-multi-region/**
+  - node_modules/@aws-sdk/token-providers/**
+  - node_modules/@aws-sdk/types/**
+  - node_modules/@aws-sdk/xml-builder/**
+  - node_modules/@aws/lambda-invoke-store/**
   - node_modules/@azure-rest/core-client/**
   - node_modules/@azure/abort-controller/**
   - node_modules/@azure/core-auth/**
@@ -49,17 +67,30 @@ files:
   - node_modules/@azure/msal-common/**
   - node_modules/@azure/msal-node/**
   - node_modules/@js-joda/core/**
+  - node_modules/@mongodb-js/saslprep/**
   - node_modules/@nodable/entities/**
+  - node_modules/@smithy/core/**
+  - node_modules/@smithy/credential-provider-imds/**
+  - node_modules/@smithy/fetch-http-handler/**
+  - node_modules/@smithy/node-http-handler/**
+  - node_modules/@smithy/signature-v4/**
+  - node_modules/@smithy/types/**
   - node_modules/@tediousjs/connection-string/**
   - node_modules/@types/node/**
   - node_modules/@types/readable-stream/**
+  - node_modules/@types/webidl-conversions/**
+  - node_modules/@types/whatwg-url/**
   - node_modules/@typespec/ts-http-runtime/**
   - node_modules/abort-controller/**
   - node_modules/agent-base/**
   - node_modules/anynum/**
+  - node_modules/asn1/**
   - node_modules/aws-ssl-profiles/**
   - node_modules/base64-js/**
+  - node_modules/bcrypt-pbkdf/**
   - node_modules/bl/**
+  - node_modules/bowser/**
+  - node_modules/bson/**
   - node_modules/buffer/**
   - node_modules/buffer-equal-constant-time/**
   - node_modules/bundle-name/**
@@ -98,6 +129,9 @@ files:
   - node_modules/lodash.once/**
   - node_modules/long/**
   - node_modules/lru.min/**
+  - node_modules/memory-pager/**
+  - node_modules/mongodb/**
+  - node_modules/mongodb-connection-string-url/**
   - node_modules/ms/**
   - node_modules/mssql/**
   - node_modules/mysql2/**
@@ -118,20 +152,27 @@ files:
   - node_modules/postgres-interval/**
   - node_modules/powershell-utils/**
   - node_modules/process/**
+  - node_modules/punycode/**
   - node_modules/readable-stream/**
   - node_modules/run-applescript/**
   - node_modules/safe-buffer/**
   - node_modules/safer-buffer/**
   - node_modules/semver/**
+  - node_modules/sparse-bitfield/**
   - node_modules/split2/**
   - node_modules/sprintf-js/**
   - node_modules/sql-escaper/**
+  - node_modules/ssh2/**
   - node_modules/string_decoder/**
   - node_modules/strnum/**
   - node_modules/tarn/**
   - node_modules/tedious/**
+  - node_modules/tr46/**
   - node_modules/tslib/**
+  - node_modules/tweetnacl/**
   - node_modules/undici-types/**
+  - node_modules/webidl-conversions/**
+  - node_modules/whatwg-url/**
   - node_modules/wsl-utils/**
   - node_modules/xml-naming/**
   - node_modules/xtend/**

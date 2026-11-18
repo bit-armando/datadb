@@ -86,7 +86,7 @@ export function driverCacheKey(config: ConnectionProfile): string {
     password: config.password,
     database: config.database,
     // Fase 80: un perfil cifrado y otro sin cifrar (o con túnel y sin él) NO pueden compartir pool.
-    red: claveDeRed(config.tls, config.ssh),
+    red: claveDeRed(config.tls, config.ssh, config.auth),
   });
 }
 

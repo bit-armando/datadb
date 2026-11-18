@@ -114,3 +114,21 @@ test("borrar el perfil borra también los secretos del salto", async () => {
   assert.equal(secretos.has(`ssh.${perfil.id}`), false);
   assert.equal(secretos.has(`db.${perfil.id}`), false);
 });
+
+test("un perfil IAM guarda región y perfil AWS en disco, sin secretos", async () => {
+  const m = await load();
+  const perfil = await m.createProfile({
+    name: "Aurora IAM",
+    type: "postgres",
+    host: "x.cluster-abc.us-east-2.rds.amazonaws.com",
+    port: 5432,
+    user: "iam_user",
+    password: "",
+    database: "postgres",
+    tls: { mode: "requerido" },
+    auth: { mode: "iam", region: "us-east-2", awsProfile: "axios-wallet" },
+  });
+  const guardado = (await m.loadProfiles()).find((p) => p.id === perfil.id);
+  assert.deepEqual(guardado?.auth, { mode: "iam", region: "us-east-2", awsProfile: "axios-wallet" });
+  assert.equal(secretos.has(`db.${perfil.id}`), false);
+});

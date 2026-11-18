@@ -28,6 +28,8 @@
     "instalar": "bash scripts/instalar.sh"
   },
   "dependencies": {
+    "@aws-sdk/credential-providers": "^3.1171.0",
+    "@aws-sdk/rds-signer": "^3.1171.0",
     "@base-ui/react": "^1.7.0",
     "@glideapps/glide-data-grid": "6.0.4-alpha24",
     "@modelcontextprotocol/sdk": "^1.30.0",

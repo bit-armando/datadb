@@ -19,6 +19,7 @@ import { promises as fs } from "node:fs";
 import type { ConnectionProfile, ConnectionProfileInput } from "@/lib/types";
 // Fase 5 (R2): el directorio de datos lo resuelve el único módulo src/server/data-dir.ts.
 import { DATA_DIR, dataPath } from "./data-dir";
+import { normalizarAuth } from "@/shared/connection-net";
 import { dbSecretName, sshPassphraseSecretName, sshPasswordSecretName } from "@/shared/secrets";
 import { deleteSecret, getSecret, setSecret } from "./secrets-client";
 
@@ -41,6 +42,7 @@ type StoredProfile = Omit<ConnectionProfile, "password">;
 function toStored(profile: ConnectionProfile): StoredProfile {
   // Se reconstruye por lista blanca, no por descarte: si mañana alguien añade al tipo un campo con
   // un secreto, no se cuela en el JSON por olvido.
+  const auth = normalizarAuth(profile.auth);
   return {
     id: profile.id,
     name: profile.name,
@@ -54,6 +56,7 @@ function toStored(profile: ConnectionProfile): StoredProfile {
     readOnly: profile.readOnly,
     // Fase 80: TLS y túnel. Solo rutas y banderas; las contraseñas viven en el almacén.
     ...(profile.tls ? { tls: profile.tls } : {}),
+    ...(auth ? { auth } : {}),
     ...(profile.ssh
       ? {
           ssh: {

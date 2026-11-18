@@ -36,6 +36,10 @@ export async function listProfiles(): Promise<ConnectionProfile[]> {
   return invoke("profiles:list");
 }
 
+export async function listAwsProfiles(): Promise<string[]> {
+  return invoke("aws:profiles");
+}
+
 export async function saveProfile(input: ConnectionProfileInput): Promise<ConnectionProfile> {
   return invoke("profiles:save", input);
 }

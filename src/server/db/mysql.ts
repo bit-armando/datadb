@@ -1,3 +1,6 @@
+import { generarTokenIam } from "@/server/auth/rds-iam";
+import { sslParaDriver } from "@/server/net/tls-sql";
+import { normalizarAuth } from "@/shared/connection-net";
 import mysql, {
   type FieldPacket,
   type Pool,
@@ -35,7 +38,16 @@ export class MysqlDriver implements DatabaseDriver {
       port: config.port || 3306,
       user: config.user,
       password: config.password,
+      ...(normalizarAuth(config.auth)
+        ? {
+            // Aurora responde con un auth switch a mysql_clear_password; el token va ahí, firmado al momento.
+            authPlugins: {
+              mysql_clear_password: () => async () => Buffer.from(`${await generarTokenIam(config)}\0`),
+            },
+          }
+        : {}),
       database: config.database,
+      ssl: sslParaDriver(config.tls, config.auth),
       connectionLimit: 5,
       connectTimeout: 8000,
       // DATE, DATETIME y TIMESTAMP llegan como TEXTO, tal cual los tiene el servidor, en vez de

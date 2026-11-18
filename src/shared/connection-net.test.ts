@@ -2,9 +2,11 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   claveDeRed,
+  normalizarAuth,
   normalizarSsh,
   normalizarTls,
   problemasDeRed,
+  regionDeHost,
   PUERTO_POR_MOTOR,
 } from "./connection-net";
 
@@ -71,4 +73,29 @@ test("la caché de drivers separa cifrado de no cifrado y con túnel de sin tún
 
 test("MongoDB tiene su puerto por defecto", () => {
   assert.equal(PUERTO_POR_MOTOR.mongodb, 27017);
+});
+
+test("normalizarAuth solo reconoce IAM y descarta basura", () => {
+  assert.equal(normalizarAuth(undefined), undefined);
+  assert.equal(normalizarAuth({ mode: "password" }), undefined);
+  assert.deepEqual(normalizarAuth({ mode: "iam", region: " us-east-2 ", awsProfile: "", x: 1 }), { mode: "iam", region: "us-east-2" });
+  assert.deepEqual(normalizarAuth({ mode: "iam", region: "us-east-2", awsProfile: "axios-wallet" }), {
+    mode: "iam",
+    region: "us-east-2",
+    awsProfile: "axios-wallet",
+  });
+});
+
+test("regionDeHost lee la región de clusters, instancias y proxies de RDS", () => {
+  assert.equal(regionDeHost("x.cluster-abc.us-east-2.rds.amazonaws.com"), "us-east-2");
+  assert.equal(regionDeHost("x.proxy-abc.ap-southeast-1.rds.amazonaws.com"), "ap-southeast-1");
+  assert.equal(regionDeHost("x.abc.us-gov-west-1.rds.amazonaws.com"), "us-gov-west-1");
+  assert.equal(regionDeHost("db.miempresa.com"), "");
+});
+
+test("IAM exige región y TLS; la clave de caché distingue la autenticación", () => {
+  const iam = { mode: "iam" as const, region: "" };
+  assert.deepEqual(problemasDeRed({ mode: "deshabilitado" }, undefined, iam), ["IAM: falta la región", "IAM: requiere TLS"]);
+  assert.deepEqual(problemasDeRed({ mode: "requerido" }, undefined, { ...iam, region: "us-east-2" }), []);
+  assert.notEqual(claveDeRed(undefined, undefined, iam), claveDeRed(undefined, undefined));
 });

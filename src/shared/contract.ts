@@ -48,6 +48,8 @@ export type IpcResult<T> =
 
 export interface InvokeMap {
   "profiles:list": { req: void; res: ConnectionProfile[] };
+  /** Nombres de perfiles de ~/.aws (para elegir con cuál firmar el token IAM). */
+  "aws:profiles": { req: void; res: string[] };
   "session:connect": {
     req: { profileId: string } | ConnectionProfileInput;
     res: Session;
@@ -246,6 +248,7 @@ export type EventChannel = keyof EventMap;
 
 export const INVOKE_CHANNELS = [
   "profiles:list",
+  "aws:profiles",
   "session:connect",
   "session:get",
   "databases:list",
