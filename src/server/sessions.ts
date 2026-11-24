@@ -138,14 +138,14 @@ const QUERY_HISTORY_LIMIT = 50; // máximo de entradas en memoria por sesión
 const SCHEMA_CACHE_TTL_MS = 60 * 1000; // 60 segundos
 
 export async function getSessionSchema(sessionId: string): Promise<SchemaNode[]> {
+  const stored = getSession(sessionId);
+  if (!stored) {
+    throw new Error("Session not found");
+  }
   const global = getGlobalSessions();
   const cached = global.schemaCache.get(sessionId);
   if (cached && Date.now() - cached.fetchedAt < SCHEMA_CACHE_TTL_MS) {
     return cached.schema;
-  }
-  const stored = getSessionMap().get(sessionId);
-  if (!stored) {
-    throw new Error("Session not found");
   }
   const schema = await stored.driver.getSchema();
   global.schemaCache.set(sessionId, { schema, fetchedAt: Date.now() });

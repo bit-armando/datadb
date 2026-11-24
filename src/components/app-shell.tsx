@@ -26,6 +26,7 @@ import { SchemaTree } from "./schema-tree";
 import { SqlEditor } from "./sql-editor";
 import { MongoConsole } from "./mongo-console";
 import { wakeBinding } from "@/lib/console-wake";
+import { isSessionExpiredError, runWithConsoleSession } from "@/lib/session-reconnect-client";
 import { MongoDocuments } from "./mongo-documents";
 import { AppTopBar } from "./app-top-bar";
 import { ConnectionsModal } from "./connections-modal";
@@ -417,7 +418,12 @@ export function AppShell() {
           saveCachedSchema(s, schema);
         }
       } catch (err) {
-        toast.error(String(err));
+        if (loadedForSessionRef.current === cacheKey) {
+          loadedForSessionRef.current = null;
+        }
+        if (!isSessionExpiredError(err)) {
+          toast.error(String(err));
+        }
       }
     }
     load();
@@ -588,16 +594,29 @@ export function AppShell() {
   }, [session?.sessionId]);
 
   async function handleRefreshSchema() {
-    if (!session) return;
-    const s = session;
+    const console_ = activeConsoleRef.current;
+    let currentSession = console_.session;
+    const currentBinding = console_.binding;
+    if (!currentSession && !currentBinding) return;
     try {
-      const [databases, schema] = await Promise.all([
-        listDatabases(s.sessionId),
-        getSchema(s.sessionId),
-      ]);
+      const {
+        result: [databases, schema],
+        session: freshSession,
+      } = await runWithConsoleSession(
+        {
+          consoleId: console_.id,
+          session: currentSession,
+          binding: currentBinding,
+          onSessionChange: (next) => {
+            currentSession = next;
+            dispatch({ type: "SET_SESSION", payload: { consoleId: console_.id, session: next } });
+          },
+        },
+        (s) => Promise.all([listDatabases(s.sessionId), getSchema(s.sessionId)])
+      );
       dispatch({ type: "SET_DATABASES", payload: databases });
       dispatch({ type: "SET_SCHEMA", payload: schema });
-      saveCachedSchema(s, schema);
+      saveCachedSchema(freshSession, schema);
       toast.success("Schema actualizado");
     } catch (err) {
       toast.error(String(err));
@@ -619,9 +638,9 @@ export function AppShell() {
   React.useEffect(() => {
     return registrarManejadoresDeArbol({
       refrescar: () => {
-        // Sin sesión no hay nada que refrescar y la tecla NO se consume (el árbol ni siquiera
-        // tiene filas). Con sesión, el camino es el del botón: `handleRefreshSchema`.
-        if (!session) return false;
+        // Sin sesión ni atadura no hay nada que refrescar y la tecla NO se consume (el árbol ni siquiera
+        // tiene filas). Con sesión o atadura, el camino es el del botón: `handleRefreshSchema`.
+        if (!session && !binding) return false;
         void handleRefreshSchema();
         return true;
       },
@@ -631,43 +650,29 @@ export function AppShell() {
   const refreshSqlResults = React.useCallback(async () => {
     // Opera sobre la consola con foco y su propia sesión (multi-conexión).
     const console_ = activeConsoleRef.current;
-    let session = console_.session;
+    const session = console_.session;
+    const binding = console_.binding;
     const consoleId = console_.id;
     const activeTab = console_.resultTabs.find(
       (t) => t.id === console_.activeResultTabId
     );
-    if (!session || !activeTab) return;
-
-    // TS no rastrea el narrowing dentro de closures: aseguramos el tipo.
-    const runWithReconnect = async (sql: string, s: NonNullable<typeof session>) => {
-      let current = s;
-      const MAX_RECONNECT = 1;
-      for (let attempt = 0; attempt <= MAX_RECONNECT; attempt++) {
-        try {
-          return await apiRunQuery(current.sessionId, sql);
-        } catch (err) {
-          const msg = String(err);
-          const isExpired =
-            /session not found/i.test(msg) || /expir/i.test(msg);
-          if (!isExpired || attempt >= MAX_RECONNECT || !current.profileId) {
-            throw err;
-          }
-          toast.info("Sesión expirada — reconectando...");
-          // R91: reabre el perfil Y la base en la que estaba (antes volvía a la base del perfil).
-          const { session: newSession } = await wakeBinding({ profileId: current.profileId, database: current.database });
-          current = newSession;
-          session = newSession;
-          dispatch({ type: "SET_SESSION", payload: { consoleId, session: newSession } });
-        }
-      }
-      throw new Error("unreachable");
-    };
+    if ((!session && !binding) || !activeTab) return;
 
     dispatch({ type: "SET_RUNNING", payload: true });
     dispatch({ type: "SET_QUERY_ERROR", payload: null });
     dispatch({ type: "SET_STATUS_MESSAGE", payload: "Ejecutando..." });
     try {
-      const res = await runWithReconnect(activeTab.sql, session);
+      const { result: res } = await runWithConsoleSession(
+        {
+          consoleId,
+          session,
+          binding,
+          onSessionChange: (newSession) => {
+            dispatch({ type: "SET_SESSION", payload: { consoleId, session: newSession } });
+          },
+        },
+        (s) => apiRunQuery(s.sessionId, activeTab.sql)
+      );
       dispatch({ type: "ADD_RESULT_TAB", payload: { ...activeTab, result: res } });
       dispatch({
         type: "SET_STATUS_MESSAGE",
@@ -686,10 +691,11 @@ export function AppShell() {
   const handlePageChange = React.useCallback(
     async (tabId: string, direction: "next" | "prev") => {
       const console_ = activeConsoleRef.current;
-      let session = console_.session;
+      const session = console_.session;
+      const binding = console_.binding;
       const consoleId = console_.id;
       const tab = console_.resultTabs.find((t) => t.id === tabId);
-      if (!session || !tab) return;
+      if ((!session && !binding) || !tab) return;
 
       const pageSize = tab.result.effectiveLimit || 500;
       const currentOffset = tab.offset ?? 0;
@@ -700,35 +706,18 @@ export function AppShell() {
 
       if (direction === "prev" && nextOffset === currentOffset) return;
 
-      const runWithReconnect = async (
-        sql: string,
-        offset: number,
-        s: NonNullable<typeof session>
-      ) => {
-        let current = s;
-        const MAX_RECONNECT = 1;
-        for (let attempt = 0; attempt <= MAX_RECONNECT; attempt++) {
-          try {
-            return await apiRunQuery(current.sessionId, sql, undefined, offset);
-          } catch (err) {
-            const msg = String(err);
-            const isExpired = /session not found/i.test(msg) || /expir/i.test(msg);
-            if (!isExpired || attempt >= MAX_RECONNECT || !current.profileId) {
-              throw err;
-            }
-            toast.info("Sesión expirada — reconectando...");
-            // R91: reabre el perfil Y su base (antes volvía a la base de fábrica del perfil).
-            const { session: newSession } = await wakeBinding({ profileId: current.profileId, database: current.database });
-            current = newSession;
-            session = newSession;
-            dispatch({ type: "SET_SESSION", payload: { consoleId, session: newSession } });
-          }
-        }
-        throw new Error("unreachable");
-      };
-
       try {
-        const res = await runWithReconnect(tab.sql, nextOffset, session);
+        const { result: res } = await runWithConsoleSession(
+          {
+            consoleId,
+            session,
+            binding,
+            onSessionChange: (newSession) => {
+              dispatch({ type: "SET_SESSION", payload: { consoleId, session: newSession } });
+            },
+          },
+          (s) => apiRunQuery(s.sessionId, tab.sql, undefined, nextOffset)
+        );
         dispatch({
           type: "ADD_RESULT_TAB",
           payload: { ...tab, result: res, offset: nextOffset },
@@ -855,7 +844,11 @@ export function AppShell() {
               isMongoConsole ? (
                 /* Fase 80: Mongo no escribe SQL ni usa el dock inferior de resultados SQL; ocupa toda el área. */
                 activeConsole.session?.type === "mongodb" ? (
-                  <MongoConsole session={activeConsole.session} />
+                  <MongoConsole
+                    consoleId={activeConsole.id}
+                    session={activeConsole.session}
+                    binding={activeConsole.binding}
+                  />
                 ) : (
                   // R91: consola de Mongo DORMIDA. Su vista vive de la sesión (colecciones,
                   // documentos), así que se ofrece abrirla en vez de montarla vacía.
@@ -932,14 +925,16 @@ export function AppShell() {
                 const tabEngine = (tabConsole.session ?? tabConsole.binding)?.type;
 
                 if (tabEngine === "mongodb") {
-                  return tabConsole.session ? (
+                  return tabConsole.session || tabConsole.binding ? (
                     /* Fase 81: en Mongo la «tabla» es una colección: la pestaña monta la vista de
                        documentos (barra de consulta + tarjetas), no la rejilla SQL. */
                     <MongoDocuments
                       key={tab.id}
-                      pestanaId={tab.id}
+                      consoleId={tabConsole.id}
                       session={tabConsole.session}
+                      binding={tabConsole.binding}
                       coleccion={tab.target.table}
+                      pestanaId={tab.id}
                     />
                   ) : (
                     <div className="flex h-full items-center justify-center bg-editor text-xs text-gdb-fgmuted">

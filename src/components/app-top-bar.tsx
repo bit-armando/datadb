@@ -52,8 +52,8 @@ import { useConectarConsola } from "@/hooks/use-conectar-consola";
 import {
   connect as apiConnect,
   listProfiles,
-  switchDatabase,
 } from "@/lib/api";
+import { switchDatabaseWithConsoleReconnect } from "@/lib/session-reconnect-client";
 import type { ConnectionProfile } from "@/lib/types";
 import { DEFAULT_PROFILE_COLOR } from "@/lib/profile-colors";
 import { toast } from "sonner";
@@ -144,8 +144,16 @@ export function AppTopBar({
     }
     if (!session || database === session.database) return;
     try {
-      const updated = await switchDatabase(session.sessionId, database);
-      dispatch({ type: "SET_SESSION", payload: { consoleId, session: updated } });
+      await switchDatabaseWithConsoleReconnect(
+        {
+          consoleId,
+          session,
+          binding: activeConsole.binding,
+          onSessionChange: (next) =>
+            dispatch({ type: "SET_SESSION", payload: { consoleId, session: next } }),
+        },
+        database
+      );
     } catch (err) {
       toast.error(String(err));
     }

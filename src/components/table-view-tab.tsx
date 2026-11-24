@@ -2,10 +2,11 @@ import { dialectoSql } from "@/shared/connection-net";
 import * as React from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { useAppState, useAppDispatch, useActiveSession } from "@/hooks/use-app-state";
+import { useAppState, useAppDispatch, useActiveConsole } from "@/hooks/use-app-state";
 import { runQuery as apiRunQuery } from "@/lib/api";
 import { quoteIdentifier, quoteValue } from "@/lib/quote";
-import type { TableTab, TableContext, QueryResult } from "@/lib/types";
+import { runWithConsoleSession } from "@/lib/session-reconnect-client";
+import type { ConsoleBinding, TableTab, TableContext, QueryResult, Session } from "@/lib/types";
 import { ResultsGrid } from "./results-grid";
 import { FkQuickViewDialog, type FkQuickTarget } from "./fk-quick-view-dialog";
 import { ColumnAutocompleteInput } from "./column-autocomplete-input";
@@ -18,13 +19,28 @@ interface TableViewTabProps {
 }
 
 export function TableViewTab({ tab }: TableViewTabProps) {
-  const { schema } = useAppState();
-  // La vista de tabla usa la sesión de la consola con foco (multi-conexión).
-  const session = useActiveSession();
+  const state = useAppState();
+  const { schema } = state;
   const dispatch = useAppDispatch();
+  const activeConsole = useActiveConsole();
+  const tabConsole =
+    (tab.consoleId ? state.consoles.find((c) => c.id === tab.consoleId) : undefined) ??
+    activeConsole;
+  const session = tabConsole.session;
+  const binding = tabConsole.binding;
   // R101: sin sesión, la pestaña ofrece reconectar por sí misma (el «Conectar» de la barra superior).
   const { conectar, conectando } = useConectarConsola();
+  const [conectandoTab, setConectandoTab] = React.useState(false);
   const { target } = tab;
+
+  const sessionRef = React.useRef<Session | null>(session);
+  const bindingRef = React.useRef<ConsoleBinding | null | undefined>(binding);
+  const consoleIdRef = React.useRef<string>(tabConsole.id);
+  React.useEffect(() => {
+    sessionRef.current = session;
+    bindingRef.current = binding;
+    consoleIdRef.current = tabConsole.id;
+  }, [session, binding, tabConsole.id]);
 
   const [whereClause, setWhereClause] = React.useState("");
   const [orderBy, setOrderBy] = React.useState("");
@@ -47,7 +63,7 @@ export function TableViewTab({ tab }: TableViewTabProps) {
   /** Qué campo dio el último error, para marcar ESE input y no los dos. */
   const [campoConError, setCampoConError] = React.useState<"where" | "order" | null>(null);
 
-  const dbType = session?.type ?? "postgres";
+  const dbType = session?.type ?? binding?.type ?? "postgres";
 
   const columns = React.useMemo(() => {
     const node = schema?.find((s) => s.name === target.schema);
@@ -104,11 +120,25 @@ export function TableViewTab({ tab }: TableViewTabProps) {
       sql: string,
       opciones: { campo?: "where" | "order"; where?: string; order?: string } = {}
     ) => {
-      if (!session) return;
+      if (!sessionRef.current) return;
       setLoading(true);
       setError(null);
       try {
-        const res = await apiRunQuery(session.sessionId, sql);
+        const { result: res } = await runWithConsoleSession(
+          {
+            consoleId: consoleIdRef.current,
+            session: sessionRef.current,
+            binding: bindingRef.current,
+            onSessionChange: (next) => {
+              sessionRef.current = next;
+              dispatch({
+                type: "SET_SESSION",
+                payload: { consoleId: consoleIdRef.current, session: next },
+              });
+            },
+          },
+          (s) => apiRunQuery(s.sessionId, sql)
+        );
         setResult(res);
         setCampoConError(null);
         /*
@@ -139,7 +169,7 @@ export function TableViewTab({ tab }: TableViewTabProps) {
         setLoading(false);
       }
     },
-    [session, detectContext]
+    [detectContext, dispatch]
   );
 
   /** Aplica lo escrito en `WHERE` (T5). El historial se apunta en `load`, y sólo si tuvo éxito. */
@@ -198,6 +228,37 @@ export function TableViewTab({ tab }: TableViewTabProps) {
     });
   }
 
+  async function handleConectarPestana() {
+    if (tabConsole.id === activeConsole.id) {
+      await conectar();
+      return;
+    }
+    if (!tabConsole.binding) {
+      toast.error("La consola no está atada a ninguna conexión: elige un perfil en Conexiones…");
+      return;
+    }
+    setConectandoTab(true);
+    try {
+      const { session: woken } = await runWithConsoleSession(
+        {
+          consoleId: tabConsole.id,
+          session: null,
+          binding: tabConsole.binding,
+          onSessionChange: (next) => {
+            sessionRef.current = next;
+            dispatch({ type: "SET_SESSION", payload: { consoleId: tabConsole.id, session: next } });
+          },
+        },
+        async (s) => s
+      );
+      toast.success(`Consola conectada a ${woken.name}`);
+    } catch (err) {
+      toast.error(String(err));
+    } finally {
+      setConectandoTab(false);
+    }
+  }
+
   // R101: sin sesión (el worker cierra las inactivas a los 10 min) la pestaña no ejecuta nada y antes
   // quedaba muda. Aquí se ofrece el mismo «Conectar» de la barra superior, sin salir de la pestaña.
   // Va DESPUÉS de todos los hooks (regla de hooks): el return temprano no los salta.
@@ -209,9 +270,9 @@ export function TableViewTab({ tab }: TableViewTabProps) {
           Esta pestaña no tiene conexión. Conéctala para ver los datos de{" "}
           <span className="font-jetbrains text-gdb-fg">{target.table}</span>.
         </p>
-        <Button size="sm" onClick={() => void conectar()} disabled={conectando} data-testid="conectar-en-pestana" className="h-7 gap-1.5">
+        <Button size="sm" onClick={() => void handleConectarPestana()} disabled={conectando || conectandoTab} data-testid="conectar-en-pestana" className="h-7 gap-1.5">
           <IjIcon name="connect" />
-          {conectando ? "Conectando…" : "Conectar"}
+          {conectando || conectandoTab ? "Conectando…" : "Conectar"}
         </Button>
       </div>
     );

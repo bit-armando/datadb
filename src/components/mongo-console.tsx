@@ -11,7 +11,8 @@ import {
 } from "@/lib/mongo-completion";
 import { useAppDispatch } from "@/hooks/use-app-state";
 import { highlightMongoLines } from "@/lib/mongo-console-highlight";
-import type { SchemaNode, Session } from "@/lib/types";
+import { runWithConsoleSession } from "@/lib/session-reconnect-client";
+import type { ConsoleBinding, SchemaNode, Session } from "@/lib/types";
 import type { MongoFindResult } from "@/shared/mongo-view";
 import "@/components/own-editor/own-editor.css";
 
@@ -290,8 +291,41 @@ function sugerenciasEn(
   return [];
 }
 
-export function MongoConsole({ session }: { session: Session }) {
+export function MongoConsole({
+  consoleId,
+  session,
+  binding,
+}: {
+  consoleId: string;
+  session: Session;
+  binding?: ConsoleBinding | null;
+}) {
   const dispatch = useAppDispatch();
+  const sessionRef = React.useRef(session);
+  const bindingRef = React.useRef(binding);
+  const loadedSchemaSessionRef = React.useRef<string | null>(null);
+  React.useEffect(() => {
+    sessionRef.current = session;
+    bindingRef.current = binding;
+  }, [session, binding]);
+
+  const runWithSession = React.useCallback(
+    <T,>(operation: (activeSession: Session) => Promise<T>) =>
+      runWithConsoleSession(
+        {
+          consoleId,
+          session: sessionRef.current,
+          binding: bindingRef.current,
+          onSessionChange: (next) => {
+            sessionRef.current = next;
+            dispatch({ type: "SET_SESSION", payload: { consoleId, session: next } });
+          },
+        },
+        operation
+      ),
+    [consoleId, dispatch]
+  );
+
   const textareaRef = React.useRef<HTMLTextAreaElement | null>(null);
   const backdropRef = React.useRef<HTMLPreElement | null>(null);
   const [colecciones, setColecciones] = React.useState<string[]>([]);
@@ -356,11 +390,19 @@ export function MongoConsole({ session }: { session: Session }) {
   }
 
   React.useEffect(() => {
+    const schemaKey = `${session.sessionId}:${session.database ?? ""}`;
+    if (loadedSchemaSessionRef.current === schemaKey) {
+      return;
+    }
     let vivo = true;
     (async () => {
       try {
-        const esquema: SchemaNode[] = await getSchema(session.sessionId);
+        const { result: esquema, session: activeSession } = await runWithSession<SchemaNode[]>(
+          (s) => getSchema(s.sessionId)
+        );
         if (!vivo) return;
+        loadedSchemaSessionRef.current = `${activeSession.sessionId}:${activeSession.database ?? ""}`;
+        setError(null);
         const lista = (esquema[0]?.tables ?? []).map((t) => t.name);
         setColecciones(lista);
         if (lista.length > 0) {
@@ -377,7 +419,7 @@ export function MongoConsole({ session }: { session: Session }) {
     return () => {
       vivo = false;
     };
-  }, [session.sessionId, session.database]);
+  }, [session.sessionId, session.database, runWithSession]);
 
   const ejecutar = React.useCallback(async () => {
     const parsed = parseMongoCommand(comando);
@@ -386,73 +428,87 @@ export function MongoConsole({ session }: { session: Session }) {
       return;
     }
 
+    let docObj: Record<string, unknown> | undefined;
+    if (parsed.type === "insertOne") {
+      try {
+        const v = JSON.parse(parsed.documento) as unknown;
+        if (!v || typeof v !== "object" || Array.isArray(v)) {
+          throw new Error("El documento debe ser un objeto JSON válido.");
+        }
+        docObj = v as Record<string, unknown>;
+      } catch (parseErr) {
+        const msg =
+          parseErr instanceof Error ? `JSON inválido: ${parseErr.message}` : "JSON inválido";
+        setSalida({ kind: "error", message: msg.replace(/^Error:\s*/, "") });
+        return;
+      }
+    }
+
     setEjecutando(true);
     const t0 = performance.now();
     try {
-      if (parsed.type === "showCollections") {
-        const esquema = await getSchema(session.sessionId);
-        const items = (esquema[0]?.tables ?? []).map((t) => t.name);
-        setColecciones(items);
-        setSalida({ kind: "collections", items, ms: Math.round(performance.now() - t0) });
-      } else if (parsed.type === "count") {
-        const { total } = await mongoCount({
-          sessionId: session.sessionId,
-          coleccion: parsed.coleccion,
-          filtro: parsed.filtro,
-        });
-        setSalida({
-          kind: "count",
-          coleccion: parsed.coleccion,
-          total,
-          ms: Math.round(performance.now() - t0),
-        });
-      } else if (parsed.type === "insertOne") {
-        let docObj: Record<string, unknown>;
-        try {
-          const v = JSON.parse(parsed.documento) as unknown;
-          if (!v || typeof v !== "object" || Array.isArray(v)) {
+      const { result: nextSalida } = await runWithSession<ConsoleOutput>(async (activeSession) => {
+        if (parsed.type === "showCollections") {
+          const esquema = await getSchema(activeSession.sessionId);
+          const items = (esquema[0]?.tables ?? []).map((t) => t.name);
+          return { kind: "collections", items, ms: Math.round(performance.now() - t0) };
+        }
+        if (parsed.type === "count") {
+          const { total } = await mongoCount({
+            sessionId: activeSession.sessionId,
+            coleccion: parsed.coleccion,
+            filtro: parsed.filtro,
+          });
+          return {
+            kind: "count",
+            coleccion: parsed.coleccion,
+            total,
+            ms: Math.round(performance.now() - t0),
+          };
+        }
+        if (parsed.type === "insertOne") {
+          if (!docObj) {
             throw new Error("El documento debe ser un objeto JSON válido.");
           }
-          docObj = v as Record<string, unknown>;
-        } catch (parseErr) {
-          throw new Error(
-            parseErr instanceof Error ? `JSON inválido: ${parseErr.message}` : "JSON inválido"
-          );
+          const { documento: insertado } = await mongoInsert({
+            sessionId: activeSession.sessionId,
+            coleccion: parsed.coleccion,
+            documento: docObj,
+          });
+          return {
+            kind: "inserted",
+            coleccion: parsed.coleccion,
+            id: String(insertado._id ?? "ok"),
+            ms: Math.round(performance.now() - t0),
+          };
         }
-        const { documento: insertado } = await mongoInsert({
-          sessionId: session.sessionId,
-          coleccion: parsed.coleccion,
-          documento: docObj,
-        });
-        setSalida({
-          kind: "inserted",
-          coleccion: parsed.coleccion,
-          id: String(insertado._id ?? "ok"),
-          ms: Math.round(performance.now() - t0),
-        });
-      } else {
         const res = await mongoFind({
-          sessionId: session.sessionId,
+          sessionId: activeSession.sessionId,
           coleccion: parsed.coleccion,
           filtro: parsed.filtro,
           orden: parsed.orden || undefined,
           skip: 0,
           limit: parsed.limit,
         });
-        setSalida({
+        return {
           kind: "docs",
           coleccion: parsed.coleccion,
           res,
           ms: Math.round(performance.now() - t0),
-        });
+        };
+      });
+
+      if (nextSalida.kind === "collections") {
+        setColecciones(nextSalida.items);
       }
+      setSalida(nextSalida);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       setSalida({ kind: "error", message: msg.replace(/^Error:\s*/, "") });
     } finally {
       setEjecutando(false);
     }
-  }, [comando, session.sessionId]);
+  }, [comando, runWithSession]);
 
   const primeraCol = colecciones[0] ?? "coleccion";
 

@@ -22,6 +22,8 @@ import { Button } from "@/components/ui/button";
 import { IjIcon } from "@/components/ij-icon";
 import { cn } from "@/lib/utils";
 import { mongoDelete, mongoFields, mongoFind, mongoInsert, mongoUpdate } from "@/lib/api";
+import { useAppDispatch } from "@/hooks/use-app-state";
+import { runWithConsoleSession } from "@/lib/session-reconnect-client";
 import { MongoBorrarDialog, MongoDocumentDialog, type ModoDeDocumento } from "@/components/mongo-document-dialog";
 import { plantillaParaDuplicar, plantillaParaEditar } from "@/shared/mongo-document-json";
 import {
@@ -41,7 +43,7 @@ import {
   DropdownMenuLabel,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import type { Session } from "@/lib/types";
+import type { ConsoleBinding, Session } from "@/lib/types";
 import { cacheDeVistasMongo } from "@/lib/mongo-vista";
 import {
   esHoja,
@@ -421,21 +423,53 @@ function TarjetaDeDocumento({
 }
 
 export function MongoDocuments({
+  consoleId,
   session,
+  binding,
   coleccion,
   pestanaId,
 }: {
-  session: Session;
+  consoleId: string;
+  session: Session | null;
+  binding?: ConsoleBinding | null;
   coleccion: string;
   /** Id de la pestaña: la clave del caché de vistas (T1 de R100). */
   pestanaId: string;
 }) {
+  const dispatch = useAppDispatch();
+  const sessionRef = React.useRef<Session | null>(session);
+  const bindingRef = React.useRef<ConsoleBinding | null | undefined>(binding);
+  React.useEffect(() => {
+    sessionRef.current = session;
+    bindingRef.current = binding;
+  }, [session, binding]);
+
+  const runWithSession = React.useCallback(
+    <T,>(operation: (activeSession: Session) => Promise<T>) =>
+      runWithConsoleSession(
+        {
+          consoleId,
+          session: sessionRef.current,
+          binding: bindingRef.current,
+          onSessionChange: (next) => {
+            sessionRef.current = next;
+            dispatch({ type: "SET_SESSION", payload: { consoleId, session: next } });
+          },
+        },
+        operation
+      ),
+    [consoleId, dispatch]
+  );
+
+  const readOnly = Boolean(session?.readOnly ?? binding?.readOnly);
+
   /**
    * Estado con el que nace la vista: lo que esta pestaña tenía la última vez (T1 de R100). Se lee con
    * el inicializador de `useState` —no en un efecto— para que corra exactamente una vez por montaje:
    * un `useEffect` llegaría DESPUÉS del primer render y la primera página se pediría igual.
    */
   const [vistaInicial] = React.useState(() => cacheDeVistasMongo.leer(pestanaId));
+  const cargaInicialHechaRef = React.useRef(Boolean(vistaInicial?.resultado));
   const [filtro, setFiltro] = React.useState(vistaInicial?.filtro ?? "");
   const [proyeccion, setProyeccion] = React.useState(vistaInicial?.proyeccion ?? "");
   const [orden, setOrden] = React.useState(vistaInicial?.orden ?? "");
@@ -486,10 +520,12 @@ export function MongoDocuments({
   const [campos, setCampos] = React.useState<string[]>([]);
 
   React.useEffect(() => {
+    const sid = session?.sessionId;
+    if (!sid) return;
     let vivo = true;
     (async () => {
       try {
-        const { campos: lista } = await mongoFields({ sessionId: session.sessionId, coleccion });
+        const { campos: lista } = await mongoFields({ sessionId: sid, coleccion });
         if (vivo) setCampos(lista);
       } catch {
         // Sin campos el autocompletado de claves queda vacío; los operadores siguen funcionando.
@@ -499,22 +535,24 @@ export function MongoDocuments({
     return () => {
       vivo = false;
     };
-  }, [session.sessionId, coleccion]);
+  }, [session?.sessionId, coleccion]);
 
   const cargar = React.useCallback(
     async (opts: { filtro: string; proyeccion: string; orden: string }, paginaNueva: number, tamano: number) => {
       setCargando(true);
       setError(null);
       try {
-        const r = await mongoFind({
-          sessionId: session.sessionId,
-          coleccion,
-          filtro: opts.filtro,
-          proyeccion: opts.proyeccion,
-          orden: opts.orden,
-          skip: paginaNueva * tamano,
-          limit: tamano,
-        });
+        const { result: r } = await runWithSession((activeSession) =>
+          mongoFind({
+            sessionId: activeSession.sessionId,
+            coleccion,
+            filtro: opts.filtro,
+            proyeccion: opts.proyeccion,
+            orden: opts.orden,
+            skip: paginaNueva * tamano,
+            limit: tamano,
+          })
+        );
         setResultado(r);
       } catch (err) {
         // El IPC devuelve el error serializado y a veces llega con el prefijo «Error: »: se quita
@@ -526,10 +564,11 @@ export function MongoDocuments({
         setCargando(false);
       }
     },
-    [session.sessionId, coleccion]
+    [coleccion, runWithSession]
   );
 
   const buscar = React.useCallback(() => {
+    cargaInicialHechaRef.current = true;
     const siguiente = { filtro, proyeccion, orden };
     setAplicado(siguiente);
     setPagina(0);
@@ -551,15 +590,14 @@ export function MongoDocuments({
     (async () => {
       await Promise.resolve();
       // Con resultado en caché no se consulta: lo que el usuario ya tenía es lo que debe ver al volver.
-      if (vivo && !vistaInicial?.resultado) {
-        await cargar({ filtro: "", proyeccion: "", orden: "" }, 0, TAMANOS_DE_PAGINA[0]);
-      }
+      if (!vivo || cargaInicialHechaRef.current) return;
+      cargaInicialHechaRef.current = true;
+      await cargar({ filtro: "", proyeccion: "", orden: "" }, 0, TAMANOS_DE_PAGINA[0]);
     })();
     return () => {
       vivo = false;
     };
-    // `vistaInicial` es estable (se lee una sola vez al montar) y el resto son las dependencias de antes.
-  }, [cargar, vistaInicial]);
+  }, [cargar]);
 
   const claveDe = (doc: Record<string, unknown>, i: number) =>
     String(doc._id ? JSON.stringify(doc._id) : i);
@@ -603,13 +641,17 @@ export function MongoDocuments({
     setGuardando((prev) => ({ ...prev, [clave]: true }));
     setErroresDoc((prev) => ({ ...prev, [clave]: null }));
     try {
-      const { documento } = await mongoUpdate({
-        sessionId: session.sessionId,
-        coleccion,
-        id: original._id,
-        cambios,
-        antes,
-      });
+      const {
+        result: { documento },
+      } = await runWithSession((activeSession) =>
+        mongoUpdate({
+          sessionId: activeSession.sessionId,
+          coleccion,
+          id: original._id,
+          cambios,
+          antes,
+        })
+      );
       // Se reemplaza por lo que devolvió el servidor (no por el borrador): si la base normalizó algo,
       // la tarjeta muestra la verdad.
       setResultado((prev) =>
@@ -655,36 +697,45 @@ export function MongoDocuments({
     setDialogoError(null);
     try {
       if (dialogo.modo === "editar" && dialogo.original) {
+        const original = dialogo.original;
         // Se reutiliza el camino de la fase 85: solo los campos distintos, con los valores originales
         // como filtro (si el documento cambió por fuera, avisa en vez de sobrescribir).
-        const cambios = cambiosRespectoA(dialogo.original, documento);
+        const cambios = cambiosRespectoA(original, documento);
         if (Object.keys(cambios).length === 0) {
           setDialogo(null);
           return;
         }
         const antes: Record<string, unknown> = {};
         for (const campo of Object.keys(cambios)) {
-          if (Object.prototype.hasOwnProperty.call(dialogo.original, campo)) antes[campo] = dialogo.original[campo];
+          if (Object.prototype.hasOwnProperty.call(original, campo)) antes[campo] = original[campo];
         }
-        const { documento: actualizado } = await mongoUpdate({
-          sessionId: session.sessionId,
-          coleccion,
-          id: dialogo.original._id,
-          cambios,
-          antes,
-        });
-        const clave = claveDe(dialogo.original, 0);
+        const {
+          result: { documento: actualizado },
+        } = await runWithSession((activeSession) =>
+          mongoUpdate({
+            sessionId: activeSession.sessionId,
+            coleccion,
+            id: original._id,
+            cambios,
+            antes,
+          })
+        );
+        const clave = claveDe(original, 0);
         setResultado((prev) =>
           prev
             ? { ...prev, documentos: prev.documentos.map((d) => (claveDe(d, 0) === clave ? actualizado : d)) }
             : prev
         );
       } else {
-        const { documento: creado } = await mongoInsert({
-          sessionId: session.sessionId,
-          coleccion,
-          documento,
-        });
+        const {
+          result: { documento: creado },
+        } = await runWithSession((activeSession) =>
+          mongoInsert({
+            sessionId: activeSession.sessionId,
+            coleccion,
+            documento,
+          })
+        );
         // El nuevo entra arriba de la página actual y el total sube: se ve al instante sin recargar.
         setResultado((prev) =>
           prev
@@ -703,15 +754,20 @@ export function MongoDocuments({
 
   async function borrarDocumento() {
     if (!porBorrar) return;
+    const docPorBorrar = porBorrar;
     setBorrando(true);
     setBorrarError(null);
     try {
-      const { eliminados } = await mongoDelete({
-        sessionId: session.sessionId,
-        coleccion,
-        id: porBorrar._id,
-      });
-      const clave = claveDe(porBorrar, 0);
+      const {
+        result: { eliminados },
+      } = await runWithSession((activeSession) =>
+        mongoDelete({
+          sessionId: activeSession.sessionId,
+          coleccion,
+          id: docPorBorrar._id,
+        })
+      );
+      const clave = claveDe(docPorBorrar, 0);
       setResultado((prev) =>
         prev
           ? {
@@ -742,6 +798,7 @@ export function MongoDocuments({
   const haySiguiente = hasta < total;
 
   function irA(p: number, tamano = porPagina) {
+    cargaInicialHechaRef.current = true;
     setPagina(p);
     void cargar(aplicado, p, tamano);
   }
@@ -887,7 +944,7 @@ export function MongoDocuments({
             </DropdownMenuContent>
           </DropdownMenu>
 
-          {!session.readOnly && (
+          {!readOnly && (
             <Button
               size="sm"
               variant="outline"
@@ -1023,10 +1080,10 @@ export function MongoDocuments({
                       return (
                         <tr
                           key={clave}
-                          onClick={() => !session.readOnly && abrirDialogo("editar", doc)}
+                          onClick={() => !readOnly && abrirDialogo("editar", doc)}
                           className={cn(
                             "odd:bg-gdb-editor even:bg-gdb-contrast/45 hover:bg-gdb-rowhover",
-                            !session.readOnly && "cursor-pointer"
+                            !readOnly && "cursor-pointer"
                           )}
                         >
                           <td className="border-b border-r border-gdb-grid bg-gdb-th/70 px-2 py-1 text-center text-[11px] text-gdb-muted select-none">
@@ -1083,7 +1140,7 @@ export function MongoDocuments({
                   original={doc}
                   indice={pagina * porPagina + i + 1}
                   vista={vista}
-                  editable={!session.readOnly}
+                  editable={!readOnly}
                   guardando={Boolean(guardando[clave])}
                   error={erroresDoc[clave] ?? null}
                   onCambio={(campo, valor) => editarCampo(clave, campo, valor)}
