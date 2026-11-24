@@ -53,6 +53,13 @@ ditto "$ORIGEN" "$DESTINO"
 # pero se limpia por si el bundle venía de un dmg bajado.
 xattr -dr com.apple.quarantine "$DESTINO" 2>/dev/null || true
 
+# Evita que Spotlight y LaunchServices indexen el bundle temporal de compilación como una segunda DataDB.app.
+LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
+if [ -x "$LSREGISTER" ]; then
+  "$LSREGISTER" -u "$PWD/$ORIGEN" >/dev/null 2>&1 || true
+fi
+rm -rf "$ORIGEN"
+
 echo "▸ abriendo…"
 open -a "$DESTINO"
 
