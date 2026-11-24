@@ -32,6 +32,7 @@
  * la vez; aquí se edita una tabla por resultado (la de más columnas). El lote de edición
  * (`batchEdit`) es de una tabla, y partirlo por tablas es un cambio aparte.
  */
+import { columnKey } from "./query-columns";
 import type { QueryColumn, SchemaNode, TableContext, TableMeta } from "@/lib/types";
 
 /** Busca la tabla de un origen en el esquema cargado: primero por esquema exacto, luego por nombre único. */
@@ -65,8 +66,11 @@ export function contextoDesdeOrigenes(
   if (!esquemas || esquemas.length === 0) return null;
 
   const repeticiones = new Map<string, number>();
-  for (const c of columnas) repeticiones.set(c.name, (repeticiones.get(c.name) ?? 0) + 1);
-  const repetido = (nombre: string) => (repeticiones.get(nombre) ?? 0) > 1;
+  for (const c of columnas) {
+    const clave = columnKey(c);
+    repeticiones.set(clave, (repeticiones.get(clave) ?? 0) + 1);
+  }
+  const repetido = (clave: string) => (repeticiones.get(clave) ?? 0) > 1;
 
   // 1. Agrupar por tabla de origen, en orden de aparición.
   const grupos = new Map<string, { schema?: string; tabla: string; columnas: QueryColumn[] }>();
@@ -87,16 +91,28 @@ export function contextoDesdeOrigenes(
     if (pks.length !== 1) continue;
     const pk = pks[0];
 
-    // 2. La clave primaria tiene que estar en el resultado, con un nombre que no se repita.
-    const pkEnResultado = grupo.columnas.find((c) => c.origen?.column === pk.name && !repetido(c.name));
+    // Si la misma columna real de esta tabla aparece más de una vez en el resultado, no se
+    // sabe cuál edición gana al escribir, así que se excluye de la edición y de la PK.
+    const repeticionesReales = new Map<string, number>();
+    for (const c of grupo.columnas) {
+      if (!c.origen) continue;
+      repeticionesReales.set(c.origen.column, (repeticionesReales.get(c.origen.column) ?? 0) + 1);
+    }
+    const realRepetida = (colReal: string) => (repeticionesReales.get(colReal) ?? 0) > 1;
+
+    // 2. La clave primaria tiene que estar en el resultado, con clave única y sin repetirse en la tabla.
+    const pkEnResultado = grupo.columnas.find(
+      (c) => c.origen?.column === pk.name && !repetido(columnKey(c)) && !realRepetida(pk.name)
+    );
     if (!pkEnResultado) continue;
 
     // 4. Columnas editables (y la clave, que identifica la fila pero no se edita).
     const mapa: Record<string, string> = {};
     for (const c of grupo.columnas) {
-      if (repetido(c.name) || !c.origen) continue;
+      const key = columnKey(c);
+      if (repetido(key) || !c.origen || realRepetida(c.origen.column)) continue;
       if (!encontrada.tabla.columns.some((m) => m.name === c.origen?.column)) continue;
-      mapa[c.name] = c.origen.column;
+      mapa[key] = c.origen.column;
     }
     const cuenta = Object.keys(mapa).length;
     // 3. La de más columnas; en empate se queda la primera.
@@ -105,14 +121,16 @@ export function contextoDesdeOrigenes(
 
     // Solo es «la tabla tal cual» si TODAS las columnas del resultado son de ella y con su
     // propio nombre: entonces una fila nueva del resultado es una fila de la tabla.
-    const tablaTalCual = columnas.every((c) => mapa[c.name] === c.name);
+    const tablaTalCual = columnas.every(
+      (c) => columnKey(c) === c.name && mapa[columnKey(c)] === c.name
+    );
     mejor = {
       schema: encontrada.schema,
       table: encontrada.tabla.name,
       pkColumns: [pk],
       columns: encontrada.tabla.columns,
       columnasDelResultado: mapa,
-      pkEnResultado: pkEnResultado.name,
+      pkEnResultado: columnKey(pkEnResultado),
       soloActualizar: !tablaTalCual,
     };
   }
@@ -137,8 +155,10 @@ export function motivoDeSoloLectura(
   if (!contexto) {
     return "Solo lectura: no se encontró una tabla con clave primaria única cuya clave venga en este resultado.";
   }
-  const repetida = columnasDelResultado.filter((c) => c.name === columna).length > 1;
-  if (repetida) return `Solo lectura: hay más de una columna «${columna}» en el resultado.`;
+  const col = columnasDelResultado.find((c) => columnKey(c) === columna);
+  const etiqueta = col?.name ?? columna;
+  const repetida = columnasDelResultado.filter((c) => columnKey(c) === columna).length > 1;
+  if (repetida) return `Solo lectura: hay más de una columna «${etiqueta}» en el resultado.`;
   const real = contexto.columnasDelResultado ? contexto.columnasDelResultado[columna] : columna;
   if (real === undefined) {
     return `Solo lectura: la columna no sale de ${contexto.table} (se editan las columnas de esa tabla).`;

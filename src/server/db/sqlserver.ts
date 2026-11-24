@@ -1,5 +1,6 @@
 import mssql from "mssql";
 import { XMLParser } from "fast-xml-parser";
+import { assignUniqueColumnKeys } from "@/lib/query-columns";
 import type {
   ColumnMeta,
   ConnectionProfile,
@@ -14,7 +15,7 @@ import type {
 } from "@/lib/types";
 import type { BatchEditInput, DatabaseDriver } from "./types";
 import { DEFAULT_LIMIT } from "./limit";
-import { isDateLike, safeIsoString } from "./date-utils";
+import { normalizeArrayRow } from "./normalize-row";
 
 const xmlParser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: "@_" });
 
@@ -247,16 +248,24 @@ export class SqlServerDriver implements DatabaseDriver {
     if (!txHandle) this.activeRequests.add(request);
 
     try {
+      request.arrayRowMode = true;
       const result = await request.query(sql);
       const durationMs = Date.now() - start;
 
       const recordset = result.recordset;
-      if (recordset && recordset.columns && Object.keys(recordset.columns).length > 0) {
-        const columns: QueryColumn[] = Object.values(recordset.columns).map((meta) => ({
-          name: meta.name,
-          type: this.sqlTypeName(meta.type),
-        }));
-        const rows = recordset.map((row) => this.normalizeRow(row as Record<string, unknown>, columns));
+      const rawCols = (
+        result as unknown as { columns?: Array<Array<{ name: string; type: unknown }>> }
+      ).columns?.[0];
+      if (recordset && rawCols && rawCols.length > 0) {
+        const columns: QueryColumn[] = assignUniqueColumnKeys(
+          rawCols.map((meta) => ({
+            name: meta.name,
+            type: this.sqlTypeName(meta.type),
+          }))
+        );
+        const rows = (recordset as unknown as unknown[][]).map((row) =>
+          normalizeArrayRow(row, columns, (buf) => buf.toString("hex"))
+        );
         return {
           columns,
           rows,
@@ -675,23 +684,5 @@ export class SqlServerDriver implements DatabaseDriver {
 
   private quote(ident: string): string {
     return `[${ident.replace(/\]/g, "]]")}]`;
-  }
-
-  private normalizeRow(
-    row: Record<string, unknown>,
-    columns: QueryColumn[]
-  ): Record<string, unknown> {
-    const out: Record<string, unknown> = {};
-    for (const col of columns) {
-      const value = row[col.name];
-      if (isDateLike(value)) {
-        out[col.name] = safeIsoString(value);
-      } else if (Buffer.isBuffer(value)) {
-        out[col.name] = value.toString("hex");
-      } else {
-        out[col.name] = value;
-      }
-    }
-    return out;
   }
 }

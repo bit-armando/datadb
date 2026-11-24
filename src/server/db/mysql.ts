@@ -8,6 +8,7 @@ import mysql, {
   type ResultSetHeader,
   type RowDataPacket,
 } from "mysql2/promise";
+import { assignUniqueColumnKeys } from "@/lib/query-columns";
 import type {
   ColumnMeta,
   ConnectionProfile,
@@ -22,7 +23,7 @@ import type {
 } from "@/lib/types";
 import type { BatchEditInput, DatabaseDriver } from "./types";
 import { DEFAULT_LIMIT } from "./limit";
-import { isDateLike, safeIsoString } from "./date-utils";
+import { normalizeArrayRow } from "./normalize-row";
 import { mysqlTipoDeCampo, origenMysql } from "./mysql-types";
 import { MYSQL_READ_ONLY_SQL } from "./read-only-session";
 
@@ -200,7 +201,7 @@ export class MysqlDriver implements DatabaseDriver {
     if (threadId !== null) this.activeThreadIds.add(threadId);
 
     try {
-      const [rows, fields] = await conn.query(sql);
+      const [rows, fields] = await conn.query({ sql, rowsAsArray: true });
       const durationMs = Date.now() - start;
 
       if (Array.isArray(fields) && fields.length > 0) {
@@ -212,20 +213,22 @@ export class MysqlDriver implements DatabaseDriver {
         // `orgName`, sin alias) y la base (`db`). Con eso la rejilla puede editar un resultado con
         // JOIN o con alias, como DataGrip. En una expresión (`count(*)`, `concat(…)`) MySQL deja
         // `orgTable` vacío, y entonces no hay origen: esa columna es de solo lectura.
-        const columns: QueryColumn[] = (fields as FieldPacket[]).map((f) => ({
-          name: String(f.name ?? ""),
-          // R98: con el ancho, para que `TINYINT(1)`/`BIT(1)` lleguen como booleanos (casilla).
-          type: mysqlTipoDeCampo(f),
-          ...origenMysql(f),
-        }));
+        const columns: QueryColumn[] = assignUniqueColumnKeys(
+          (fields as FieldPacket[]).map((f) => ({
+            name: String(f.name ?? ""),
+            // R98: con el ancho, para que `TINYINT(1)`/`BIT(1)` lleguen como booleanos (casilla).
+            type: mysqlTipoDeCampo(f),
+            ...origenMysql(f),
+          }))
+        );
 
         const resultRows = Array.isArray(rows)
-          ? (rows as RowDataPacket[])
+          ? (rows as unknown[][])
           : [];
 
         return {
           columns,
-          rows: resultRows.map((row) => this.normalizeRow(row, columns)),
+          rows: resultRows.map((row) => normalizeArrayRow(row, columns, (buf) => buf.toString("hex"))),
           rowCount: resultRows.length,
           durationMs,
           limitApplied: false,
@@ -535,23 +538,5 @@ export class MysqlDriver implements DatabaseDriver {
       return (res as ResultSetHeader).affectedRows ?? 0;
     }
     return 0;
-  }
-
-  private normalizeRow(
-    row: RowDataPacket,
-    columns: QueryColumn[]
-  ): Record<string, unknown> {
-    const out: Record<string, unknown> = {};
-    for (const col of columns) {
-      const value = row[col.name];
-      if (isDateLike(value)) {
-        out[col.name] = safeIsoString(value);
-      } else if (Buffer.isBuffer(value)) {
-        out[col.name] = value.toString("hex");
-      } else {
-        out[col.name] = value;
-      }
-    }
-    return out;
   }
 }

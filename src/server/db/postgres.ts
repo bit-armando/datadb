@@ -1,7 +1,8 @@
 import { generarTokenIam } from "@/server/auth/rds-iam";
 import { sslParaDriver } from "@/server/net/tls-sql";
 import { normalizarAuth } from "@/shared/connection-net";
-import { Pool, types as pgTypes, type PoolClient, type QueryResult as PgQueryResult } from "pg";
+import { Pool, types as pgTypes, type PoolClient, type QueryArrayResult } from "pg";
+import { assignUniqueColumnKeys } from "@/lib/query-columns";
 import type {
   ColumnMeta,
   ConnectionProfile,
@@ -16,7 +17,7 @@ import type {
 } from "@/lib/types";
 import type { BatchEditInput, DatabaseDriver } from "./types";
 import { DEFAULT_LIMIT } from "./limit";
-import { isDateLike, safeIsoString } from "./date-utils";
+import { normalizeArrayRow } from "./normalize-row";
 import { pgReadOnlyPoolOptions } from "./read-only-session";
 import {
   OIDS_TEXTO_CRUDO,
@@ -346,20 +347,20 @@ export class PostgresDriver implements DatabaseDriver {
     if (marker) this.activeQueries.add(marker);
 
     try {
-      const result = await client.query(sql);
+      const result = await client.query({ text: sql, rowMode: "array" });
       const durationMs = Date.now() - start;
 
-      let last: PgQueryResult<Record<string, unknown>> | undefined;
+      let last: QueryArrayResult<unknown[]> | undefined;
       if (Array.isArray(result)) {
         for (let i = result.length - 1; i >= 0; i--) {
           const r = result[i];
           if (r && typeof r === "object" && "fields" in r && r.fields !== undefined) {
-            last = r as PgQueryResult<Record<string, unknown>>;
+            last = r as QueryArrayResult<unknown[]>;
             break;
           }
         }
       } else {
-        last = result as PgQueryResult<Record<string, unknown>>;
+        last = result as QueryArrayResult<unknown[]>;
       }
 
       if (last && last.fields && last.fields.length > 0) {
@@ -370,13 +371,17 @@ export class PostgresDriver implements DatabaseDriver {
         // una expresión); se resuelven contra el catálogo para que la rejilla pueda editar un
         // resultado con JOIN o con alias, como DataGrip.
         const origenes = await this.resolverOrigenes(last.fields, txClient ? undefined : client);
-        const columns: QueryColumn[] = last.fields.map((f, i) => {
-          const origen = origenes[i];
-          return origen
-            ? { name: f.name, type: pgTypeName(f.dataTypeID), origen }
-            : { name: f.name, type: pgTypeName(f.dataTypeID) };
-        });
-        const rows = last.rows.map((row) => this.normalizeRow(row, columns));
+        const columns: QueryColumn[] = assignUniqueColumnKeys(
+          last.fields.map((f, i) => {
+            const origen = origenes[i];
+            return origen
+              ? { name: f.name, type: pgTypeName(f.dataTypeID), origen }
+              : { name: f.name, type: pgTypeName(f.dataTypeID) };
+          })
+        );
+        const rows = last.rows.map((row) =>
+          normalizeArrayRow(row, columns, (buf) => `\\x${buf.toString("hex")}`)
+        );
         return {
           columns,
           rows,
@@ -698,23 +703,5 @@ export class PostgresDriver implements DatabaseDriver {
 
   private quote(ident: string): string {
     return `"${ident.replace(/"/g, '""')}"`;
-  }
-
-  private normalizeRow(
-    row: Record<string, unknown>,
-    columns: QueryColumn[]
-  ): Record<string, unknown> {
-    const out: Record<string, unknown> = {};
-    for (const col of columns) {
-      const value = row[col.name];
-      if (isDateLike(value)) {
-        out[col.name] = safeIsoString(value);
-      } else if (Buffer.isBuffer(value)) {
-        out[col.name] = `\\x${value.toString("hex")}`;
-      } else {
-        out[col.name] = value;
-      }
-    }
-    return out;
   }
 }

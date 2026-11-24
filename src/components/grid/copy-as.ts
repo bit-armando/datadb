@@ -21,6 +21,7 @@
 
 import { cellText } from "@/lib/cell-value";
 import { formatResult } from "@/lib/export-formats";
+import { columnKey } from "@/lib/query-columns";
 import type { SqlDialect } from "@/lib/quote";
 import type { QueryResult } from "@/lib/types";
 
@@ -102,6 +103,11 @@ export interface SeleccionDeDatos {
  */
 export interface ExtraccionDeSeleccion {
   columnas: string[];
+  /**
+   * Definiciones con clave disambiguada cuando alguna columna extraída tiene `key !== undefined`;
+   * ausente cuando no hay duplicados para conservar la forma simple del objeto.
+   */
+  definiciones?: { name: string; key?: string }[];
   indicesOriginales: number[];
 }
 
@@ -192,26 +198,44 @@ export function desdeGridSelection(seleccion: SeleccionDeGlide | undefined): Sel
  * fuera de rango se ignora en vez de reventar: una selección puede quedar desfasada del result por
  * un refresco, y ahí lo correcto es copiar lo que aún existe.
  */
+function construirExtraccion(
+  elegidas: readonly { name: string; key?: string }[],
+  indicesOriginales: number[]
+): ExtraccionDeSeleccion {
+  const tieneClaves = elegidas.some((c) => c.key !== undefined);
+  return {
+    columnas: elegidas.map((c) => c.name),
+    ...(tieneClaves
+      ? {
+          definiciones: elegidas.map((c) =>
+            c.key !== undefined ? { name: c.name, key: c.key } : { name: c.name }
+          ),
+        }
+      : {}),
+    indicesOriginales,
+  };
+}
+
 export function extraerSeleccion(
   seleccion: SeleccionDeDatos | undefined,
   indicesVisibles: readonly number[],
-  columnas: readonly { name: string }[]
+  columnas: readonly { name: string; key?: string }[]
 ): ExtraccionDeSeleccion {
   // 1) Rango. Se usa aunque venga degenerado (ancho/alto 0): una selección «vacía» explícita no
   //    debe caer a las filas marcadas, que ya no son la selección vigente.
   if (seleccion?.rango) {
     const { x, y, ancho, alto } = seleccion.rango;
-    const nombres: string[] = [];
+    const colsElegidas: { name: string; key?: string }[] = [];
     for (let c = x; c < x + ancho; c++) {
       const col = columnas[c];
-      if (col) nombres.push(col.name);
+      if (col) colsElegidas.push(col);
     }
     const indices: number[] = [];
     for (let f = y; f < y + alto; f++) {
       const original = indicesVisibles[f];
       if (original !== undefined) indices.push(original);
     }
-    return { columnas: nombres, indicesOriginales: indices };
+    return construirExtraccion(colsElegidas, indices);
   }
 
   // 2) Filas marcadas: todas las columnas de la rejilla, en el orden de la rejilla.
@@ -220,19 +244,16 @@ export function extraerSeleccion(
     const indices = marcadas
       .map((visible) => indicesVisibles[visible])
       .filter((original): original is number => original !== undefined);
-    return { columnas: columnas.map((c) => c.name), indicesOriginales: indices };
+    return construirExtraccion(columnas, indices);
   }
 
   // 3) Columnas seleccionadas: todas las filas visibles, en orden visible.
   const elegidas = ordenarSinDuplicados(seleccion?.columnas ?? []);
   if (elegidas.length > 0) {
-    const nombres = elegidas
-      .map((c) => columnas[c]?.name)
-      .filter((nombre): nombre is string => nombre !== undefined);
-    return {
-      columnas: nombres,
-      indicesOriginales: sinDuplicados(indicesVisibles),
-    };
+    const colsElegidas = elegidas
+      .map((c) => columnas[c])
+      .filter((col): col is { name: string; key?: string } => col !== undefined);
+    return construirExtraccion(colsElegidas, sinDuplicados(indicesVisibles));
   }
 
   return { columnas: [], indicesOriginales: [] };
@@ -265,7 +286,7 @@ function aTsvDeResultado(resultado: QueryResult): string {
   return resultado.rows
     .map((fila) =>
       resultado.columns
-        .map((c) => escaparTsv(cellText(fila[c.name]) ?? ""))
+        .map((c) => escaparTsv(cellText(fila[columnKey(c)]) ?? ""))
         .join("\t")
     )
     .join("\n");
@@ -304,13 +325,22 @@ export function copiarComo(
     .filter((fila): fila is Record<string, unknown> => fila !== undefined);
   if (elegidas.length === 0) return "";
 
+  const definiciones: { name: string; key?: string }[] =
+    extraccion.definiciones ?? columnas.map((name) => ({ name }));
   const recorte: QueryResult = {
-    columns: columnas.map((name) => ({ name, type: "" })),
+    columns: definiciones.map((d) => ({
+      name: d.name,
+      ...(d.key !== undefined ? { key: d.key } : {}),
+      type: "",
+    })),
     // Copia superficial a propósito: no se mutan ni se reordenan las filas originales (la rejilla
     // guarda cambios pendientes contra su posición, fases 11-13).
     rows: elegidas.map((fila) => {
       const soloElegidas: Record<string, unknown> = {};
-      for (const c of columnas) soloElegidas[c] = fila[c];
+      for (const col of definiciones) {
+        const k = columnKey(col);
+        soloElegidas[k] = fila[k];
+      }
       return soloElegidas;
     }),
     rowCount: elegidas.length,

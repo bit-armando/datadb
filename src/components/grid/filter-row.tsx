@@ -29,6 +29,7 @@ import type { TextosDeFiltro } from "./filtering";
 /** Dónde va el input de una columna, en píxeles relativos al contenedor de la rejilla. */
 export interface PosicionDeFiltro {
   columna: string;
+  etiqueta?: string;
   izquierda: number;
   ancho: number;
 }
@@ -49,6 +50,7 @@ function mismasPosiciones(a: PosicionDeFiltro[], b: PosicionDeFiltro[]): boolean
     a.every(
       (p, i) =>
         p.columna === b[i].columna &&
+        p.etiqueta === b[i].etiqueta &&
         Math.abs(p.izquierda - b[i].izquierda) < 0.5 &&
         Math.abs(p.ancho - b[i].ancho) < 0.5
     )
@@ -144,6 +146,7 @@ export const FilterRow = React.forwardRef<FiltroRowHandle, FilterRowProps>(funct
         <EntradaDeFiltro
           key={p.columna}
           columna={p.columna}
+          etiqueta={p.etiqueta}
           valor={filtros[p.columna] ?? ""}
           onCambiar={onCambiarFiltro}
           izquierda={p.izquierda}
@@ -165,17 +168,20 @@ export const FilterRow = React.forwardRef<FiltroRowHandle, FilterRowProps>(funct
  */
 function EntradaDeFiltro({
   columna,
+  etiqueta,
   valor,
   onCambiar,
   izquierda,
   ancho,
 }: {
   columna: string;
+  etiqueta?: string;
   valor: string;
   onCambiar: (columna: string, valor: string) => void;
   izquierda: number;
   ancho: number;
 }) {
+  const label = etiqueta ?? columna;
   const [borrador, setBorrador] = React.useState(valor);
   const ultimoEnviado = React.useRef(valor);
   const temporizador = React.useRef<number | undefined>(undefined);
@@ -233,7 +239,7 @@ function EntradaDeFiltro({
         onChange={(e) => alTeclear(e.target.value)}
         onKeyDown={alPulsarTecla}
         placeholder="filtrar…"
-        aria-label={`Filtro de la columna ${columna}`}
+        aria-label={`Filtro de la columna ${label}`}
         spellCheck={false}
         className={
           "h-full w-full bg-transparent px-1.5 pr-5 font-mono text-[11px] outline-none " +
@@ -252,8 +258,8 @@ function EntradaDeFiltro({
             setBorrador("");
             enviar("");
           }}
-          title={`Quitar el filtro de ${columna}`}
-          aria-label={`Quitar el filtro de ${columna}`}
+          title={`Quitar el filtro de ${label}`}
+          aria-label={`Quitar el filtro de ${label}`}
           className="absolute top-1/2 right-1 -translate-y-1/2 text-gdb-muted hover:text-gdb-fg"
         >
           <IjIcon name="close" />

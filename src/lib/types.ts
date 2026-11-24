@@ -122,6 +122,13 @@ export interface ForeignKeyRef {
 
 export interface QueryColumn {
   name: string;
+  /**
+   * Clave única de la columna dentro del resultado cuando `name` se repite (p. ej. un JOIN con
+   * dos columnas `name`: la primera queda con `name` y la segunda con `key: "name_2"`). Ausente
+   * cuando `name` es único en el resultado; usar siempre `columnKey(col)` para leer o escribir
+   * valores de fila y claves de UI.
+   */
+  key?: string;
   type: string;
   /**
    * De qué columna de qué tabla sale esta columna del resultado, cuando el motor lo dice.

@@ -14,6 +14,7 @@ import { CodePreview } from "@/components/code-preview";
 import { MarkdownContent } from "@/components/markdown-content";
 import { useAppDispatch, useActiveSession } from "@/hooks/use-app-state";
 import { askAi, makeUserChatMessage, makeAssistantChatMessage } from "@/lib/ai";
+import { columnKey } from "@/lib/query-columns";
 import type { QueryResult, TableContext } from "@/lib/types";
 import { AlertTriangleIcon, CopyIcon, FileInputIcon, SparklesIcon } from "lucide-react";
 
@@ -41,7 +42,7 @@ export function AiDataDialog({ open, onOpenChange, result, tableContext }: AiDat
   const [busy, setBusy] = React.useState(false);
   const [response, setResponse] = React.useState<{ text: string; sql?: string } | null>(null);
 
-  const columns = result.columns.map((c) => c.name);
+  const columns = result.columns.map((c) => columnKey(c));
   const rowCount = Math.min(ROW_LIMIT, result.rows.length);
   const tableName = tableContext
     ? tableContext.schema

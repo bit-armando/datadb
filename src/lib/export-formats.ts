@@ -1,4 +1,5 @@
 import { cellText } from "./cell-value";
+import { columnKey } from "./query-columns";
 import { quoteIdentifier, type SqlDialect } from "./quote";
 import type { QueryResult } from "./types";
 
@@ -170,10 +171,11 @@ function pythonLiteral(value: unknown): string {
 
 export function formatCsv(result: QueryResult): string {
   const headers = result.columns.map((c) => c.name);
+  const keys = result.columns.map((c) => columnKey(c));
   const lines = [
     headers.join(","),
     ...result.rows.map((row) =>
-      headers.map((h) => escaparCsv(row[h])).join(",")
+      keys.map((k) => escaparCsv(row[k])).join(",")
     ),
   ];
   return lines.join("\n");
@@ -184,37 +186,37 @@ export function formatJson(result: QueryResult): string {
 }
 
 export function formatMarkdown(result: QueryResult): string {
-  const headers = result.columns.map((c) => c.name);
-  const widths = headers.map((h) =>
-    Math.max(
-      h.length,
-      ...result.rows.map((row) => (cellText(row[h]) ?? "").length)
-    )
-  );
+  const widths = result.columns.map((c) => {
+    const key = columnKey(c);
+    return Math.max(
+      c.name.length,
+      ...result.rows.map((row) => (cellText(row[key]) ?? "").length)
+    );
+  });
 
   function pad(value: unknown, width: number): string {
     const text = cellText(value) ?? "";
     return text.padEnd(width, " ");
   }
 
-  const headerRow = `| ${headers.map((h, i) => pad(h, widths[i])).join(" | ")} |`;
+  const headerRow = `| ${result.columns.map((c, i) => pad(c.name, widths[i])).join(" | ")} |`;
   const separator = `| ${widths.map((w) => "-".repeat(w)).join(" | ")} |`;
   const dataRows = result.rows.map(
     (row) =>
-      `| ${headers.map((h, i) => pad(row[h], widths[i])).join(" | ")} |`
+      `| ${result.columns.map((c, i) => pad(row[columnKey(c)], widths[i])).join(" | ")} |`
   );
 
   return [headerRow, separator, ...dataRows].join("\n");
 }
 
 export function formatPretty(result: QueryResult): string {
-  const headers = result.columns.map((c) => c.name);
-  const widths = headers.map((h) =>
-    Math.max(
-      h.length,
-      ...result.rows.map((row) => (cellText(row[h]) ?? "").length)
-    )
-  );
+  const widths = result.columns.map((c) => {
+    const key = columnKey(c);
+    return Math.max(
+      c.name.length,
+      ...result.rows.map((row) => (cellText(row[key]) ?? "").length)
+    );
+  });
 
   function pad(value: unknown, width: number): string {
     const text = cellText(value) ?? "NULL";
@@ -224,11 +226,11 @@ export function formatPretty(result: QueryResult): string {
   const hRule =
     "+" + widths.map((w) => "-".repeat(w + 2)).join("+") + "+";
   const headerRow =
-    "| " + headers.map((h, i) => pad(h, widths[i])).join(" | ") + " |";
+    "| " + result.columns.map((c, i) => pad(c.name, widths[i])).join(" | ") + " |";
   const dataRows = result.rows.map(
     (row) =>
       "| " +
-      headers.map((h, i) => pad(row[h], widths[i])).join(" | ") +
+      result.columns.map((c, i) => pad(row[columnKey(c)], widths[i])).join(" | ") +
       " |"
   );
 
@@ -241,22 +243,35 @@ export function formatSqlInserts(
 ): string {
   const dialecto = options.dialecto ?? DIALECTO_POR_DEFECTO;
   const tabla = nombreDeTablaSql(options);
-  const columns = result.columns.map((c) => c.name);
-  if (columns.length === 0 || result.rows.length === 0) return "";
+  if (result.columns.length === 0 || result.rows.length === 0) return "";
 
-  const header = `INSERT INTO ${tabla.sql} (${columns
-    .map((c) => quoteIdentifier(c, dialecto))
+  const header = `INSERT INTO ${tabla.sql} (${result.columns
+    .map((c) => quoteIdentifier(c.name, dialecto))
     .join(", ")}) VALUES`;
 
   const values = result.rows.map(
     (row) =>
-      `  (${columns.map((c) => sqlLiteral(row[c], dialecto)).join(", ")})`
+      `  (${result.columns.map((c) => sqlLiteral(row[columnKey(c)], dialecto)).join(", ")})`
   );
 
   const sentencia = `${header}\n${values.join(",\n")};`;
   return tabla.desconocida
     ? `${avisoTablaDesconocida(tabla.sql)}\n${sentencia}`
     : sentencia;
+}
+
+/**
+ * Resuelve cada PK indicada contra `result.columns` (por `columnKey(c)` o `c.name`) para
+ * entrecomillar el identificador SQL real (`c.name`) y leer el valor por `columnKey(c)`.
+ */
+function resolverPkColumns(
+  result: QueryResult,
+  pkColumns: readonly string[]
+): { ident: string; key: string }[] {
+  return pkColumns.map((pk) => {
+    const col = result.columns.find((c) => columnKey(c) === pk || c.name === pk);
+    return col ? { ident: col.name, key: columnKey(col) } : { ident: pk, key: pk };
+  });
 }
 
 /**
@@ -273,16 +288,17 @@ export function formatSqlUpdates(
   const pkColumns = options.pkColumns ?? [];
   if (pkColumns.length === 0) return "";
 
-  const columns = result.columns.map((c) => c.name);
-  const setColumns = columns.filter((c) => !pkColumns.includes(c));
+  const pkResolved = resolverPkColumns(result, pkColumns);
+  const pkKeys = new Set(pkResolved.map((p) => p.key));
+  const setColumns = result.columns.filter((c) => !pkKeys.has(columnKey(c)));
   if (setColumns.length === 0 || result.rows.length === 0) return "";
 
   const statements = result.rows.map((row) => {
     const setClause = setColumns
-      .map((c) => `${quoteIdentifier(c, dialecto)} = ${sqlLiteral(row[c], dialecto)}`)
+      .map((c) => `${quoteIdentifier(c.name, dialecto)} = ${sqlLiteral(row[columnKey(c)], dialecto)}`)
       .join(", ");
-    const whereClause = pkColumns
-      .map((c) => `${quoteIdentifier(c, dialecto)} = ${sqlLiteral(row[c], dialecto)}`)
+    const whereClause = pkResolved
+      .map((p) => `${quoteIdentifier(p.ident, dialecto)} = ${sqlLiteral(row[p.key], dialecto)}`)
       .join(" AND ");
     return `UPDATE ${tabla.sql} SET ${setClause} WHERE ${whereClause};`;
   });
@@ -307,9 +323,10 @@ export function formatSqlDeletes(
   const pkColumns = options.pkColumns ?? [];
   if (pkColumns.length === 0 || result.rows.length === 0) return "";
 
+  const pkResolved = resolverPkColumns(result, pkColumns);
   const statements = result.rows.map((row) => {
-    const whereClause = pkColumns
-      .map((c) => `${quoteIdentifier(c, dialecto)} = ${sqlLiteral(row[c], dialecto)}`)
+    const whereClause = pkResolved
+      .map((p) => `${quoteIdentifier(p.ident, dialecto)} = ${sqlLiteral(row[p.key], dialecto)}`)
       .join(" AND ");
     return `DELETE FROM ${tabla.sql} WHERE ${whereClause};`;
   });
@@ -318,13 +335,13 @@ export function formatSqlDeletes(
 }
 
 export function formatPandas(result: QueryResult): string {
-  const headers = result.columns.map((c) => c.name);
+  const keys = result.columns.map((c) => columnKey(c));
   const rows = result.rows
     .map(
       (row) =>
         "    {" +
-        headers
-          .map((h) => `${JSON.stringify(h)}: ${pythonLiteral(row[h])}`)
+        keys
+          .map((k) => `${JSON.stringify(k)}: ${pythonLiteral(row[k])}`)
           .join(", ") +
         "}"
     )

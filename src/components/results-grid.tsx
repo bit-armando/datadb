@@ -36,6 +36,7 @@ import {
 import { AiDataDialog } from "./ai-data-dialog";
 import { batchEdit } from "@/lib/api";
 import { motivoDeSoloLectura } from "@/lib/result-origin";
+import { columnKey } from "@/lib/query-columns";
 import { useAppState, useActiveSession } from "@/hooks/use-app-state";
 import {
   TESTID_REJILLA,
@@ -903,7 +904,7 @@ export const ResultsGrid = React.memo(function ResultsGrid({
             /* R94: un resultado que no se puede editar LO DICE, con el porqué en el tooltip. */
             <span
               data-testid="solo-lectura"
-              title={motivoSoloLectura(result.columns[0].name) ?? undefined}
+              title={motivoSoloLectura(columnKey(result.columns[0])) ?? undefined}
               className="rounded border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground"
             >
               Solo lectura
@@ -1074,7 +1075,7 @@ export const ResultsGrid = React.memo(function ResultsGrid({
               // rejilla (para el F4 del enrutador, fase 15 T5): el ref no se pisa entre instancias.
               const publicada: CeldaEnfocada = {
                 columna: celda.columna,
-                tipo: meta?.type ?? result.columns.find((c) => c.name === celda.columna)?.type ?? "",
+                tipo: meta?.type ?? result.columns.find((c) => columnKey(c) === celda.columna)?.type ?? "",
                 indiceOriginal: celda.indiceOriginal,
                 valor: celda.valor,
                 editable,

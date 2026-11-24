@@ -3,6 +3,10 @@ import assert from "node:assert/strict";
 import {
   escaparCsv,
   formatCsv,
+  formatJson,
+  formatMarkdown,
+  formatPandas,
+  formatPretty,
   formatResult,
   formatSqlDeletes,
   formatSqlInserts,
@@ -321,5 +325,58 @@ describe("formatResult", () => {
       formatResult("sql-delete", resultadoDe([], ["id"]), { pkColumns: ["id"] }),
       ""
     );
+  });
+});
+
+describe("columnas con nombre duplicado (key disambiguada)", () => {
+  const duplicadas: QueryResult = {
+    columns: [
+      { name: "name", type: "varchar" },
+      { name: "id", type: "int4" },
+      { name: "name", key: "name_2", type: "varchar" },
+    ],
+    rows: [{ name: "Banco Uno", id: 7, name_2: "Cuenta A" }],
+    rowCount: 1,
+    durationMs: 0,
+    limitApplied: false,
+    effectiveLimit: 1,
+  };
+
+  test("CSV conserva encabezados originales y lee valores por `columnKey`", () => {
+    assert.equal(formatCsv(duplicadas), "name,id,name\nBanco Uno,7,Cuenta A");
+  });
+
+  test("JSON conserva ambos valores con sus claves disambiguadas", () => {
+    assert.deepEqual(JSON.parse(formatJson(duplicadas)), [
+      { name: "Banco Uno", id: 7, name_2: "Cuenta A" },
+    ]);
+  });
+
+  test("Markdown usa `c.name` en cabecera y valores distintos en celdas", () => {
+    assert.equal(
+      formatMarkdown(duplicadas),
+      "| name      | id | name     |\n| --------- | -- | -------- |\n| Banco Uno | 7  | Cuenta A |"
+    );
+  });
+
+  test("Pretty usa `c.name` en cabecera y valores distintos en celdas", () => {
+    assert.equal(
+      formatPretty(duplicadas),
+      "+-----------+----+----------+\n| name      | id | name     |\n+-----------+----+----------+\n| Banco Uno | 7  | Cuenta A |\n+-----------+----+----------+"
+    );
+  });
+
+  test("SQL INSERT cita `c.name` y lee valores por `columnKey`", () => {
+    assert.equal(
+      formatSqlInserts(duplicadas, { tableName: "cuentas", dialecto: "postgres" }),
+      'INSERT INTO "cuentas" ("name", "id", "name") VALUES\n  (\'Banco Uno\', 7, \'Cuenta A\');'
+    );
+  });
+
+  test("Pandas usa `columnKey` como clave de diccionario Python para no sobrescribir", () => {
+    const py = formatPandas(duplicadas);
+    assert.ok(py.includes('"name": r"""Banco Uno"""'), py);
+    assert.ok(py.includes('"id": 7'), py);
+    assert.ok(py.includes('"name_2": r"""Cuenta A"""'), py);
   });
 });

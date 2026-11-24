@@ -112,6 +112,60 @@ describe("contextoDesdeOrigenes", () => {
   test("sin contexto, el motivo de solo lectura lo explica", () => {
     assert.match(motivoDeSoloLectura("x", null, []) ?? "", /clave primaria/);
   });
+
+  test("JOIN con columnas homónimas desambiguadas (`banko.name` + `cuenta.id, cuenta.name`)", () => {
+    const esquemasConBanco: SchemaNode[] = [
+      esquema("public", {
+        banks_bank: [col("id", true), col("name")],
+        accounts_account: [col("id", true), col("name"), col("bank_id")],
+      }),
+    ];
+    const columnas: QueryColumn[] = [
+      {
+        name: "name",
+        type: "varchar",
+        origen: { schema: "public", table: "banks_bank", column: "name" },
+      },
+      {
+        name: "id",
+        type: "int4",
+        origen: { schema: "public", table: "accounts_account", column: "id" },
+      },
+      {
+        name: "name",
+        key: "name_2",
+        type: "varchar",
+        origen: { schema: "public", table: "accounts_account", column: "name" },
+      },
+    ];
+    const ctx = contextoDesdeOrigenes(columnas, esquemasConBanco);
+    assert.ok(ctx, "cuenta tiene su PK `id` y más columnas");
+    assert.equal(ctx.table, "accounts_account");
+    assert.equal(ctx.pkEnResultado, "id");
+    assert.deepEqual(ctx.columnasDelResultado, { id: "id", name_2: "name" });
+    assert.equal(ctx.soloActualizar, true);
+    assert.equal(motivoDeSoloLectura("name_2", ctx, columnas), null);
+    assert.match(motivoDeSoloLectura("name", ctx, columnas) ?? "", /no sale de accounts_account/);
+  });
+
+  test("la misma columna real repetida dentro de la misma tabla se excluye de edición y de PK", () => {
+    const columnas: QueryColumn[] = [
+      deFicha("id"),
+      { ...deFicha("id"), key: "id_2" },
+      deFicha("datetime_deposit"),
+    ];
+    assert.equal(contextoDesdeOrigenes(columnas, ESQUEMAS), null);
+
+    const conOtraRepetida: QueryColumn[] = [
+      deFicha("id"),
+      deFicha("datetime_deposit"),
+      { ...deFicha("datetime_deposit"), key: "datetime_deposit_2" },
+    ];
+    const ctx = contextoDesdeOrigenes(conOtraRepetida, ESQUEMAS);
+    assert.ok(ctx);
+    assert.deepEqual(ctx.columnasDelResultado, { id: "id" });
+    assert.match(motivoDeSoloLectura("datetime_deposit_2", ctx, conOtraRepetida) ?? "", /no sale de/);
+  });
 });
 
 describe("origen en los drivers", () => {

@@ -42,6 +42,7 @@ import {
   type Theme,
 } from "@glideapps/glide-data-grid";
 import { EditableCell } from "@/components/editable-cell";
+import { columnKey } from "@/lib/query-columns";
 import type { QueryColumn } from "@/lib/types";
 import { useThemeState, useThemeTokens } from "@/theme/theme-store";
 import type { TokenKey } from "@/theme/tokens";
@@ -424,11 +425,14 @@ export function DataGrid({
   // reconstruir un array idéntico en cada cambio de orden.
   const columnasDelGrid = React.useMemo<GridColumn[]>(
     () =>
-      columnas.map((c) => ({
-        id: c.name,
-        title: c.name,
-        width: anchos?.[c.name] ?? ANCHO_POR_DEFECTO,
-      })),
+      columnas.map((c) => {
+        const clave = columnKey(c);
+        return {
+          id: clave,
+          title: c.name,
+          width: anchos?.[clave] ?? ANCHO_POR_DEFECTO,
+        };
+      }),
     [columnas, anchos]
   );
 
@@ -467,7 +471,14 @@ export function DataGrid({
       if (x >= rc.width) break;
       const izquierda = Math.max(x, finDelMarcador);
       const visible = x + ancho - izquierda;
-      if (visible > 0) posiciones.push({ columna: columnas[i].name, izquierda, ancho: visible });
+      if (visible > 0) {
+        posiciones.push({
+          columna: columnKey(columnas[i]),
+          etiqueta: columnas[i].name,
+          izquierda,
+          ancho: visible,
+        });
+      }
       x += ancho;
     }
     return posiciones;
@@ -634,13 +645,14 @@ export function DataGrid({
   const getCellContent = React.useCallback(
     ([col, fila]: Item): GridCell => {
       const columna = columnas[col];
+      const clave = columna ? columnKey(columna) : undefined;
       const filaReal = filas[indices[fila] ?? fila];
-      const valor = columna ? filaReal?.[columna.name] : undefined;
+      const valor = clave !== undefined ? filaReal?.[clave] : undefined;
       const tipo = columna?.type ?? "";
       const pintada = pintarCelda(valor, tipo);
       const filaOriginal = indices[fila] ?? fila;
-      const editada = columna ? celdaEditada?.(columna.name, filaOriginal) : false;
-      const soloLectura = !(columna && puedeEditar?.(columna.name));
+      const editada = clave !== undefined ? celdaEditada?.(clave, filaOriginal) : false;
+      const soloLectura = !(clave !== undefined && puedeEditar?.(clave));
       /*
         R98: booleanos como CASILLA, como DataGrip. Se marca/desmarca con un clic sobre la casilla
         (lo hace glide y avisa en `onCellEdited`, abajo). NULL —o un valor que no es 0/1— sigue siendo
@@ -719,9 +731,11 @@ export function DataGrid({
       drawContent();
       if (!esColumnaFk) return;
       const columna = columnas[args.col];
-      if (!columna || !esColumnaFk(columna.name)) return;
+      if (!columna) return;
+      const clave = columnKey(columna);
+      if (!esColumnaFk(clave)) return;
       const filaOriginal = indices[args.row] ?? args.row;
-      const valor = filas[filaOriginal]?.[columna.name];
+      const valor = filas[filaOriginal]?.[clave];
       if (valor === null || valor === undefined) return;
       if (args.rect.width < 36) return;
 
@@ -815,35 +829,38 @@ export function DataGrid({
           const [col, fila] = celda;
           const columna = columnas[col];
           if (!columna) return;
+          const clave = columnKey(columna);
           const filaOriginal = indices[fila] ?? fila;
-          const valor = filas[filaOriginal]?.[columna.name];
+          const valor = filas[filaOriginal]?.[clave];
           const tipo = columna.type ?? "";
 
-          if (onClickFk && esColumnaFk?.(columna.name) && valor !== null && valor !== undefined) {
+          if (onClickFk && esColumnaFk?.(clave) && valor !== null && valor !== undefined) {
             const pintada = pintarCelda(valor, tipo);
             const align = pintada.alineacion === "derecha" ? "right" : "left";
             if (isInFkArrowHitZone(evento.bounds.width, align, evento.localEventX)) {
-              onClickFk(columna.name, filaOriginal);
+              onClickFk(clave, filaOriginal);
               return;
             }
           }
 
-          if (esColumnaBooleana(tipo) && puedeEditar?.(columna.name)) {
+          if (esColumnaBooleana(tipo) && puedeEditar?.(clave)) {
             const actual = valorBooleano(valor);
             if (actual !== null) {
-              onEditarCelda?.(columna.name, filaOriginal, booleanoParaGuardar(valor, !actual));
+              onEditarCelda?.(clave, filaOriginal, booleanoParaGuardar(valor, !actual));
             }
           }
         }}
         onCellActivated={([col, fila]) => {
           const columna = columnas[col];
-          if (!columna || !puedeEditar?.(columna.name)) return;
+          if (!columna) return;
+          const clave = columnKey(columna);
+          if (!puedeEditar?.(clave)) return;
           if (!esColumnaBooleana(columna.type ?? "")) return;
           const filaOriginal = indices[fila] ?? fila;
-          const valor = filas[filaOriginal]?.[columna.name];
+          const valor = filas[filaOriginal]?.[clave];
           const actual = valorBooleano(valor);
           if (actual !== null) {
-            onEditarCelda?.(columna.name, filaOriginal, booleanoParaGuardar(valor, !actual));
+            onEditarCelda?.(clave, filaOriginal, booleanoParaGuardar(valor, !actual));
           }
         }}
         // `clickable-number`, no `number`: con el segundo el número de fila es decorativo y
@@ -873,10 +890,10 @@ export function DataGrid({
         }}
         onCellContextMenu={(celda, evento) => {
           const [col, fila] = celda;
-          const nombre = columnas[col]?.name;
-          if (!nombre) return;
+          const columna = columnas[col];
+          if (!columna) return;
           evento.preventDefault();
-          onMenuContextual?.(nombre, indices[fila] ?? fila, evento.bounds.x, evento.bounds.y);
+          onMenuContextual?.(columnKey(columna), indices[fila] ?? fila, evento.bounds.x, evento.bounds.y);
         }}
         gridSelection={seleccion}
         onGridSelectionChange={(s) => {
@@ -898,9 +915,10 @@ export function DataGrid({
               const [col, filaVisible] = celda;
               const columna = columnas[col];
               const indiceOriginal = indices[filaVisible] ?? filaVisible;
+              const clave = columna ? columnKey(columna) : undefined;
               onCeldaEnfocada(
-                columna
-                  ? { columna: columna.name, indiceOriginal, valor: filas[indiceOriginal]?.[columna.name] }
+                clave !== undefined
+                  ? { columna: clave, indiceOriginal, valor: filas[indiceOriginal]?.[clave] }
                   : null
               );
             }
@@ -936,16 +954,17 @@ export function DataGrid({
             const filaVisible = seleccion?.current?.cell?.[1] ?? 0;
             const columna = columnas[col];
             const filaOriginal = indices[filaVisible] ?? filaVisible;
-            const valorCrudo = columna ? filas[filaOriginal]?.[columna.name] : undefined;
             if (!columna) return <div />;
+            const clave = columnKey(columna);
+            const valorCrudo = filas[filaOriginal]?.[clave];
             /*
               R94: celda de solo lectura. glide abre el overlay igual (la celda lleva
               `allowOverlay`, que es lo que deja VER un valor largo entero), pero aquí NO se monta el
               editor: antes se montaba, aceptaba el cambio y el contenedor lo descartaba sin avisar.
               Se enseña el valor seleccionable (para copiarlo) y el motivo; ⎋ o un clic fuera cierran.
             */
-            if (!puedeEditar?.(columna.name)) {
-              const motivo = motivoSoloLectura?.(columna.name) ?? "Solo lectura.";
+            if (!puedeEditar?.(clave)) {
+              const motivo = motivoSoloLectura?.(clave) ?? "Solo lectura.";
               return (
                 <div
                   className="min-w-[260px] max-w-[480px] bg-gdb-field p-1.5"
@@ -973,7 +992,7 @@ export function DataGrid({
                   value={valorCrudo}
                   columnType={columna.type}
                   onCommit={(nuevo) => {
-                    onEditarCelda?.(columna.name, filaOriginal, nuevo);
+                    onEditarCelda?.(clave, filaOriginal, nuevo);
                     // glide necesita una celda del mismo `kind` para cerrar el overlay.
                     const texto = nuevo === null || nuevo === undefined ? "" : String(nuevo);
                     props.onFinishedEditing({
@@ -997,18 +1016,20 @@ export function DataGrid({
           */
           if (nuevo.kind !== GridCellKind.Boolean || typeof nuevo.data !== "boolean") return;
           const columna = columnas[col];
-          if (!columna || !puedeEditar?.(columna.name)) return;
+          if (!columna) return;
+          const clave = columnKey(columna);
+          if (!puedeEditar?.(clave)) return;
           const filaOriginal = indices[filaVisible] ?? filaVisible;
-          const original = filas[filaOriginal]?.[columna.name];
-          onEditarCelda?.(columna.name, filaOriginal, booleanoParaGuardar(original, nuevo.data));
+          const original = filas[filaOriginal]?.[clave];
+          onEditarCelda?.(clave, filaOriginal, booleanoParaGuardar(original, nuevo.data));
         }}
         onHeaderClicked={(col) => {
-          const nombre = columnas[col]?.name;
-          if (!nombre) return;
+          const columna = columnas[col];
+          if (!columna) return;
           // El `apilar` de D1 sale del `⌥` que capturó el `pointerdown` en captura (ver `apilarRef`):
           // con `⌥` el clic APILA un nivel detrás de los que ya había; sin él, REEMPLAZA el orden por
           // esta columna —o cicla asc → desc → nada si es el único nivel (el ciclo de siempre).
-          setOrden((actual) => siguienteOrden(actual, nombre, apilarRef.current));
+          setOrden((actual) => siguienteOrden(actual, columnKey(columna), apilarRef.current));
         }}
       />
       )}
@@ -1018,7 +1039,7 @@ export function DataGrid({
       {filaDeFiltros && (
         <FilterRow
           ref={filaDeFiltrosRef}
-          columnas={columnas.map((c) => c.name)}
+          columnas={columnas.map((c) => columnKey(c))}
           filtros={filtros}
           onCambiarFiltro={onCambiarFiltro ?? (() => undefined)}
           onLimpiarFiltros={onLimpiarFiltros ?? (() => undefined)}

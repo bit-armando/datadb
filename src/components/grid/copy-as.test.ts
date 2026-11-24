@@ -402,3 +402,52 @@ describe("desdeGridSelection: la traducción desde glide (T6/T7)", () => {
     assert.equal(copiarComo("tsv", FILAS, ex, OPCIONES), "1\n2");
   });
 });
+
+describe("copiarComo con columnas homónimas (key disambiguada)", () => {
+  const colsDup = [{ name: "name" }, { name: "id" }, { name: "name", key: "name_2" }];
+  const filasDup = [
+    { name: "Banco Norte", id: 10, name_2: "Cuenta Principal" },
+    { name: "Banco Sur", id: 20, name_2: "Cuenta Ahorro" },
+  ];
+
+  test("preserva los valores de ambas columnas en TSV, CSV, JSON, Markdown e INSERT", () => {
+    const ex = extraerSeleccion(
+      { rango: { x: 0, y: 0, ancho: 3, alto: 2 } },
+      [0, 1],
+      colsDup
+    );
+    assert.deepEqual(ex.columnas, ["name", "id", "name"]);
+    assert.deepEqual(ex.definiciones, [
+      { name: "name" },
+      { name: "id" },
+      { name: "name", key: "name_2" },
+    ]);
+
+    assert.equal(
+      copiarComo("tsv", filasDup, ex, OPCIONES),
+      "Banco Norte\t10\tCuenta Principal\nBanco Sur\t20\tCuenta Ahorro"
+    );
+    assert.equal(
+      copiarComo("csv", filasDup, ex, OPCIONES),
+      "name,id,name\nBanco Norte,10,Cuenta Principal\nBanco Sur,20,Cuenta Ahorro"
+    );
+    assert.deepEqual(JSON.parse(copiarComo("json", filasDup, ex, OPCIONES)), filasDup);
+    assert.equal(
+      copiarComo("markdown", filasDup, ex, OPCIONES),
+      "| name        | id | name             |\n| ----------- | -- | ---------------- |\n| Banco Norte | 10 | Cuenta Principal |\n| Banco Sur   | 20 | Cuenta Ahorro    |"
+    );
+    assert.equal(
+      copiarComo("insert", filasDup, ex, OPCIONES),
+      'INSERT INTO "public"."clientes" ("name", "id", "name") VALUES\n  (\'Banco Norte\', 10, \'Cuenta Principal\'),\n  (\'Banco Sur\', 20, \'Cuenta Ahorro\');'
+    );
+  });
+
+  test("seleccionar solo la segunda columna duplicada copia únicamente sus valores", () => {
+    const ex = extraerSeleccion({ columnas: [2] }, [0, 1], colsDup);
+    assert.equal(copiarComo("tsv", filasDup, ex, OPCIONES), "Cuenta Principal\nCuenta Ahorro");
+    assert.equal(
+      copiarComo("csv", filasDup, ex, OPCIONES),
+      "name\nCuenta Principal\nCuenta Ahorro"
+    );
+  });
+});
