@@ -5,6 +5,7 @@ import type { QueryResult } from "./types";
 
 export type ExportFormat =
   | "csv"
+  | "xlsx"
   | "json"
   | "markdown"
   | "pretty"
@@ -391,6 +392,22 @@ export function downloadText(filename: string, content: string): void {
   URL.revokeObjectURL(url);
 }
 
+export function downloadBinary(
+  filename: string,
+  data: Uint8Array,
+  mimeType: string
+): void {
+  const blob = new Blob([new Uint8Array(data)], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 export function copyToClipboard(text: string): Promise<void> {
   return navigator.clipboard.writeText(text);
 }
@@ -399,6 +416,8 @@ export function extensionForFormat(format: ExportFormat): string {
   switch (format) {
     case "csv":
       return "csv";
+    case "xlsx":
+      return "xlsx";
     case "json":
       return "json";
     case "markdown":

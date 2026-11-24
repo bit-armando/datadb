@@ -24,15 +24,18 @@ import {
   type ExportFormat,
   formatResult,
   downloadText,
+  downloadBinary,
   copyToClipboard,
   extensionForFormat,
 } from "@/lib/export-formats";
+import { buildXlsx, XLSX_MIME_TYPE } from "@/lib/xlsx-export";
 import type { QueryResult, TableContext } from "@/lib/types";
 import { useActiveSession } from "@/hooks/use-app-state";
 import { DownloadIcon, CopyIcon, FileOutputIcon, EyeIcon } from "lucide-react";
 
 const FORMAT_LABELS: Record<ExportFormat, string> = {
   csv: "CSV",
+  xlsx: "Excel (.xlsx)",
   json: "JSON",
   markdown: "Markdown",
   pretty: "Pretty (tabla)",
@@ -46,6 +49,7 @@ const PREVIEW_LIMIT = 30;
 
 const FORMAT_LANGUAGES: Record<ExportFormat, CodePreviewProps["language"]> = {
   csv: "text",
+  xlsx: "text",
   json: "json",
   markdown: "markdown",
   pretty: "text",
@@ -80,6 +84,7 @@ export function ResultExporter({ result, tableContext }: ResultExporterProps) {
   });
   const [previewOpen, setPreviewOpen] = React.useState(false);
   const [showFullPreview, setShowFullPreview] = React.useState(false);
+  const [exportingXlsx, setExportingXlsx] = React.useState(false);
 
   const pkColumnNames = React.useMemo(
     () => tableContext?.pkColumns.map((c) => c.name) ?? [],
@@ -125,7 +130,22 @@ export function ResultExporter({ result, tableContext }: ResultExporterProps) {
     setPreviewOpen(false);
   }
 
-  const fullContent = buildContent();
+  async function handleDownloadXlsx() {
+    setExportingXlsx(true);
+    try {
+      const bytes = await buildXlsx(result, { sheetName: tableContext?.table });
+      const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+      const filename = `export-xlsx-${timestamp}.xlsx`;
+      downloadBinary(filename, bytes, XLSX_MIME_TYPE);
+      toast.success(`Descargado ${filename}`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "No se pudo exportar a Excel");
+    } finally {
+      setExportingXlsx(false);
+    }
+  }
+
+  const fullContent = format === "xlsx" ? "" : buildContent();
   const allLines = fullContent.split("\n");
   const hasMore = allLines.length > PREVIEW_LIMIT;
   const previewContent = showFullPreview
@@ -173,10 +193,22 @@ export function ResultExporter({ result, tableContext }: ResultExporterProps) {
           </span>
         )}
 
-        <Button size="xs" variant="outline" onClick={openPreview} disabled={!canGenerate}>
-          <EyeIcon className="size-3" />
-          Vista previa
-        </Button>
+        {format === "xlsx" ? (
+          <Button
+            size="xs"
+            variant="outline"
+            onClick={handleDownloadXlsx}
+            disabled={exportingXlsx || result.columns.length === 0}
+          >
+            <DownloadIcon className="size-3" />
+            {exportingXlsx ? "Exportando…" : "Descargar .xlsx"}
+          </Button>
+        ) : (
+          <Button size="xs" variant="outline" onClick={openPreview} disabled={!canGenerate}>
+            <EyeIcon className="size-3" />
+            Vista previa
+          </Button>
+        )}
       </div>
 
       <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>

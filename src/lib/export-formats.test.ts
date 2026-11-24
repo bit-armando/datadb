@@ -2,6 +2,7 @@ import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import {
   escaparCsv,
+  extensionForFormat,
   formatCsv,
   formatJson,
   formatMarkdown,
@@ -378,5 +379,11 @@ describe("columnas con nombre duplicado (key disambiguada)", () => {
     assert.ok(py.includes('"name": r"""Banco Uno"""'), py);
     assert.ok(py.includes('"id": 7'), py);
     assert.ok(py.includes('"name_2": r"""Cuenta A"""'), py);
+  });
+});
+
+describe("extensionForFormat", () => {
+  test("devuelve xlsx para el formato Excel (.xlsx)", () => {
+    assert.equal(extensionForFormat("xlsx"), "xlsx");
   });
 });
